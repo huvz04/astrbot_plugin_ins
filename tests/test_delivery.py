@@ -105,6 +105,9 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.bot.store.pending(self.sub, include_deferred=True)), 1)
         self.assertEqual(self.bot.store.pending(other), [])
         self.bot.instagram.fetch.assert_called_once_with('account')
+        self.assertIn('发送失败', self.bot.listing('group'))
+        self.assertNotIn('发送失败', self.bot.listing('other'))
+        self.assertIn('推送 1 条', self.bot.listing('other'))
 
     async def test_failed_source_does_not_initialize_baseline(self):
         self.bot.instagram.fetch = Mock(return_value=({}, {'stories': 'failed'}))

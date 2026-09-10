@@ -17,6 +17,7 @@ from .instagram import Instagram, error_message
 
 HELP = '''Instagram 订阅推送（修改和手动检查需 AstrBot 管理员权限）
 /ins add 用户名 — 订阅到当前群或私聊，首次成功检查只建立基线
+/ins set 账号甲,账号乙 — 替换当前群或私聊的账号列表（英文逗号分隔，不加空格）
 /ins remove 用户名 — 取消当前会话的订阅
 /ins list — 查看当前会话订阅和运行状态
 /ins check — 立即检查当前会话订阅（遵守失败退避）
@@ -88,10 +89,11 @@ class InsPlugin(Star):
                 notices = [f'{key}: {value}' for key, value in errors.items()]
                 if not fetching:
                     notices.append('抓取退避中，本轮只处理已保存的待发内容')
-                delivered = 0
                 for sub, target, name in subscriptions:
                     if name != account:
                         continue
+                    delivered = 0
+                    target_notices = list(notices)
                     for source, items in results.items():
                         self.store.ingest(sub, source, items)
                     for key, item, position in self.store.pending(
@@ -102,12 +104,12 @@ class InsPlugin(Star):
                             delivered += 1
                         except Exception as exc:
                             self.store.defer(sub, key)
-                            notices.append(f'发送失败（{type(exc).__name__}），保留队列待重试')
+                            target_notices.append(f'发送失败（{type(exc).__name__}），保留队列待重试')
                             continue
-                timestamp = time.strftime('%m-%d %H:%M')
-                self.status[account] = f'{timestamp}，推送 {delivered} 条'
-                if notices:
-                    self.status[account] += '\n' + '\n'.join(notices)
+                    timestamp = time.strftime('%m-%d %H:%M')
+                    self.status[(target, account)] = f'{timestamp}，推送 {delivered} 条'
+                    if target_notices:
+                        self.status[(target, account)] += '\n' + '\n'.join(target_notices)
                 # A small gap between accounts, in addition to Instaloader rate control.
                 if account != accounts[-1]:
                     await asyncio.sleep(3)
@@ -171,6 +173,19 @@ class InsPlugin(Star):
             '\n可用 /ins check 立即初始化，/ins list 查看状态。' if added else '当前会话已订阅该账号。')
 
     @filter.permission_type(filter.PermissionType.ADMIN)
+    @ins.command('set')
+    async def set_command(self, event: AstrMessageEvent, accounts: str):
+        event.stop_event()
+        try:
+            async with self.lock:
+                selected = self.store.set_accounts(event.unified_msg_origin, accounts)
+        except ValueError as exc:
+            yield event.plain_result(str(exc))
+            return
+        yield event.plain_result('当前会话的订阅已设为：' + '、'.join('@' + name for name in selected)
+                                 + '。其他群和私聊不受影响。新增账号首次检查只建立基线。')
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @ins.command('remove')
     async def remove_command(self, event: AstrMessageEvent, account: str):
         event.stop_event()
@@ -189,7 +204,7 @@ class InsPlugin(Star):
             return '当前会话暂无订阅。使用 /ins add 用户名 添加。'
         lines = []
         for _, _, account in rows:
-            lines.append(f'@{account}：{self.status.get(account, "等待检查")}')
+            lines.append(f'@{account}：{self.status.get((origin, account), "等待检查")}')
             retry = self.retry.get(account, 0) - time.time()
             if retry > 0:
                 lines.append(f'退避剩余 {int(retry / 60) + 1} 分钟')

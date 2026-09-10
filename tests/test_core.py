@@ -73,6 +73,22 @@ class StoreTests(unittest.TestCase):
         self.store.ingest(self.sub, 'posts', [item('new', 3), item('old', 2)])
         self.assertEqual(self.store.pending(self.sub, 1)[0][0], 'old')
 
+    def test_set_accounts_isolates_groups_and_private_and_keeps_progress(self):
+        self.store.ingest(self.sub, 'posts', [])
+        self.store.ingest(self.sub, 'posts', [item('new')])
+        self.store.set_accounts('group-b', 'test,other')
+        self.store.set_accounts('private-person', 'third')
+        self.store.set_accounts('group-a', 'test,extra')
+        self.assertEqual(self.store.subscriptions('group-a')[0][0], self.sub)
+        self.assertEqual(len(self.store.pending(self.sub)), 1)
+        self.store.set_accounts('group-a', 'extra')
+        self.assertEqual({r[2] for r in self.store.subscriptions('group-b')}, {'test', 'other'})
+        self.assertEqual({r[2] for r in self.store.subscriptions('private-person')}, {'third'})
+        before = self.store.subscriptions()
+        with self.assertRaises(ValueError):
+            self.store.set_accounts('group-b', 'valid,bad/name')
+        self.assertEqual(self.store.subscriptions(), before)
+
     def test_usernames(self):
         self.assertEqual(username('https://www.instagram.com/Test.User/?igsh=123'), 'test.user')
         self.assertEqual(username('@TEST'), 'test')

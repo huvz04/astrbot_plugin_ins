@@ -55,6 +55,18 @@ class Store:
                 'DELETE FROM subscriptions WHERE origin=? AND account=?',
                 (origin, account)).rowcount > 0
 
+    def set_accounts(self, origin, value):
+        accounts = {username(part) for part in value.replace('，', ',').split(',')}
+        existing = {row[2] for row in self.subscriptions(origin)}
+        with self.db:
+            for account in existing - accounts:
+                self.db.execute('DELETE FROM subscriptions WHERE origin=? AND account=?',
+                                (origin, account))
+            for account in accounts - existing:
+                self.db.execute('INSERT INTO subscriptions(origin,account) VALUES (?,?)',
+                                (origin, account))
+        return sorted(accounts)
+
     def subscriptions(self, origin=None):
         if origin is None:
             return self.db.execute('SELECT id,origin,account FROM subscriptions').fetchall()
