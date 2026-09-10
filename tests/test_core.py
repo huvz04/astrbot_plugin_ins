@@ -79,7 +79,8 @@ class StoreTests(unittest.TestCase):
         self.store.set_accounts('group-b', 'test,other')
         self.store.set_accounts('private-person', 'third')
         self.store.set_accounts('group-a', 'test,extra')
-        self.assertEqual(self.store.subscriptions('group-a')[0][0], self.sub)
+        ids = {row[2]: row[0] for row in self.store.subscriptions('group-a')}
+        self.assertEqual(ids['test'], self.sub)
         self.assertEqual(len(self.store.pending(self.sub)), 1)
         self.store.set_accounts('group-a', 'extra')
         self.assertEqual({r[2] for r in self.store.subscriptions('group-b')}, {'test', 'other'})
