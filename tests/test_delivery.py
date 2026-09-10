@@ -59,6 +59,30 @@ plugin = load_plugin()
 
 
 class DeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dashboard_targets_are_silent_and_authoritative(self):
+        self.bot.config.update(dashboard_control=True, subscriptions=[
+            dict(platform_id='bot', target_id='123', target_type='群聊', accounts='one,two'),
+            dict(platform_id='bot', target_id='456', target_type='私聊', accounts='three')])
+        rows = self.bot.selected_subscriptions()
+        self.assertEqual({(r[1], r[2]) for r in rows}, {
+            ('bot:GroupMessage:123', 'one'), ('bot:GroupMessage:123', 'two'),
+            ('bot:FriendMessage:456', 'three')})
+        self.context.send_message.assert_not_called()
+        self.bot.config['subscriptions'][0]['enabled'] = False
+        self.assertEqual(len(self.bot.selected_subscriptions()), 1)
+        self.bot.config['subscriptions'] = []
+        self.assertEqual(self.bot.selected_subscriptions(), [])
+
+    async def test_invalid_dashboard_configuration_does_not_partially_apply(self):
+        self.bot.config.update(dashboard_control=True, subscriptions=[
+            dict(platform_id='bot', target_id='123', accounts='valid'),
+            dict(platform_id='', target_id='456', accounts='other')])
+        before = self.bot.store.subscriptions()
+        with self.assertRaises(ValueError):
+            self.bot.selected_subscriptions()
+        self.assertEqual(self.bot.store.subscriptions(), before)
+        self.context.send_message.assert_not_called()
+
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.context = types.SimpleNamespace(send_message=AsyncMock(return_value=True))

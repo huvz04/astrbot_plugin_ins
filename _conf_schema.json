@@ -1,17 +1,142 @@
 {
-  "enabled": {"description": "启用自动检查", "type": "bool", "default": true},
-  "interval_seconds": {"description": "检查间隔（秒）", "type": "int", "default": 900, "hint": "最少300秒，附加随机延迟；失败会逐步退避至最多6小时。"},
-  "login_username": {"description": "Instagram 登录用户名", "type": "string", "default": "", "hint": "填写你在浏览器中已登录的账号名，不是监控目标；与下方 Cookie 配合使用。保存后重载插件。"},
-  "login_cookie": {"description": "Instagram 登录 Cookie", "type": "text", "default": "", "hint": "粘贴浏览器已登录 Instagram 请求中的完整 Cookie 请求头，需含 sessionid 和 csrftoken；也支持 JSON 键值对象。优先于会话文件。Cookie 是登录凭证，仅填在管理面板，不要发到群里。保存后重载插件。"},
-  "session_file": {"description": "登录会话文件路径（可选，旧方式）", "type": "string", "default": "", "hint": "已填写 Cookie 时无需设置。仅在 Cookie 为空时使用；路径必须在 AstrBot 主机/容器内。"},
-  "proxy": {"description": "HTTP/HTTPS 代理地址（可选）", "type": "string", "default": "", "hint": "例如 http://127.0.0.1:7890；用于抓取与媒体下载。容器中的127.0.0.1是容器本身。修改后重载。"},
-  "enable_posts": {"description": "监控帖子（含轮播图、视频）", "type": "bool", "default": true},
-  "enable_reels": {"description": "监控 Reels", "type": "bool", "default": true},
-  "enable_stories": {"description": "监控 Story（需要登录）", "type": "bool", "default": true},
-  "enable_highlights": {"description": "监控精选动态（需要登录）", "type": "bool", "default": true},
-  "enable_tagged": {"description": "监控被标记的帖子", "type": "bool", "default": false, "hint": "可选，会增加请求次数；来源为其他账号发布的帖子。"},
-  "scan_limit": {"description": "每次扫描的帖子/Reels/精选集合数量", "type": "int", "default": 30, "hint": "1–500；Story 检查所有当前可见项目，精选检查前N个集合内所有项目。不是完整历史归档。"},
-  "push_limit": {"description": "每个账号每个会话每轮最多推送条数", "type": "int", "default": 10},
-  "send_media": {"description": "下载并发送图片与视频", "type": "bool", "default": true, "hint": "关闭后只发送正文和原链接。"},
-  "max_media_mb": {"description": "单个媒体下载上限（MB）", "type": "int", "default": 100, "hint": "超过上限时保留原链接和重试队列；可提高上限，或关闭媒体发送后完成队列。"}
+  "dashboard_control": {
+    "description": "使用后台订阅列表管理推送",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后仅向下方启用的目标推送，旧聊天命令订阅暂停使用；不会向群发送配置通知。"
+  },
+  "subscriptions": {
+    "description": "群聊与私聊订阅列表",
+    "type": "template_list",
+    "default": [],
+    "templates": {
+      "target": {
+        "name": "推送目标",
+        "display_item": "label",
+        "items": {
+          "label": {
+            "description": "备注名称",
+            "type": "string",
+            "default": "",
+            "hint": "例如 A群 或 私聊小明，仅用于后台识别。"
+          },
+          "enabled": {
+            "description": "启用此目标",
+            "type": "bool",
+            "default": true
+          },
+          "platform_id": {
+            "description": "机器人连接 ID",
+            "type": "string",
+            "default": "",
+            "hint": "填写 AstrBot 机器人页面对应连接的 ID，不是机器人 QQ 号。"
+          },
+          "target_type": {
+            "description": "推送目标类型",
+            "type": "string",
+            "default": "群聊",
+            "options": [
+              "群聊",
+              "私聊"
+            ]
+          },
+          "target_id": {
+            "description": "群号或用户 ID",
+            "type": "string",
+            "default": ""
+          },
+          "accounts": {
+            "description": "订阅的 Ins 账号",
+            "type": "string",
+            "default": "",
+            "hint": "多个账号用逗号分隔，例如 account_a,account_b；留空则不推送。"
+          }
+        }
+      }
+    }
+  },
+  "enabled": {
+    "description": "启用自动检查",
+    "type": "bool",
+    "default": true
+  },
+  "interval_seconds": {
+    "description": "检查间隔（秒）",
+    "type": "int",
+    "default": 900,
+    "hint": "最少300秒，附加随机延迟；失败会逐步退避至最多6小时。"
+  },
+  "login_username": {
+    "description": "Instagram 登录用户名",
+    "type": "string",
+    "default": "",
+    "hint": "填写你在浏览器中已登录的账号名，不是监控目标；与下方 Cookie 配合使用。保存后重载插件。"
+  },
+  "login_cookie": {
+    "description": "Instagram 登录 Cookie",
+    "type": "text",
+    "default": "",
+    "hint": "粘贴浏览器已登录 Instagram 请求中的完整 Cookie 请求头，需含 sessionid 和 csrftoken；也支持 JSON 键值对象。优先于会话文件。Cookie 是登录凭证，仅填在管理面板，不要发到群里。保存后重载插件。"
+  },
+  "session_file": {
+    "description": "登录会话文件路径（可选，旧方式）",
+    "type": "string",
+    "default": "",
+    "hint": "已填写 Cookie 时无需设置。仅在 Cookie 为空时使用；路径必须在 AstrBot 主机/容器内。"
+  },
+  "proxy": {
+    "description": "HTTP/HTTPS 代理地址（可选）",
+    "type": "string",
+    "default": "",
+    "hint": "例如 http://127.0.0.1:7890；用于抓取与媒体下载。容器中的127.0.0.1是容器本身。修改后重载。"
+  },
+  "enable_posts": {
+    "description": "监控帖子（含轮播图、视频）",
+    "type": "bool",
+    "default": true
+  },
+  "enable_reels": {
+    "description": "监控 Reels",
+    "type": "bool",
+    "default": true
+  },
+  "enable_stories": {
+    "description": "监控 Story（需要登录）",
+    "type": "bool",
+    "default": true
+  },
+  "enable_highlights": {
+    "description": "监控精选动态（需要登录）",
+    "type": "bool",
+    "default": true
+  },
+  "enable_tagged": {
+    "description": "监控被标记的帖子",
+    "type": "bool",
+    "default": false,
+    "hint": "可选，会增加请求次数；来源为其他账号发布的帖子。"
+  },
+  "scan_limit": {
+    "description": "每次扫描的帖子/Reels/精选集合数量",
+    "type": "int",
+    "default": 30,
+    "hint": "1–500；Story 检查所有当前可见项目，精选检查前N个集合内所有项目。不是完整历史归档。"
+  },
+  "push_limit": {
+    "description": "每个账号每个会话每轮最多推送条数",
+    "type": "int",
+    "default": 10
+  },
+  "send_media": {
+    "description": "下载并发送图片与视频",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后只发送正文和原链接。"
+  },
+  "max_media_mb": {
+    "description": "单个媒体下载上限（MB）",
+    "type": "int",
+    "default": 100,
+    "hint": "超过上限时保留原链接和重试队列；可提高上限，或关闭媒体发送后完成队列。"
+  }
 }

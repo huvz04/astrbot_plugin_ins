@@ -43,6 +43,29 @@ class InsPlugin(Star):
     async def initialize(self):
         self.task = asyncio.create_task(self.scheduler())
 
+    def selected_subscriptions(self, origin=None):
+        if not self.config.get('dashboard_control', False):
+            return self.store.subscriptions(origin)
+        desired = set()
+        for row in self.config.get('subscriptions', []):
+            if not row.get('enabled', True):
+                continue
+            accounts = str(row.get('accounts', '')).strip()
+            if not accounts:
+                continue
+            platform = str(row.get('platform_id', '')).strip()
+            target = str(row.get('target_id', '')).strip()
+            kind = row.get('target_type', '群聊')
+            if not platform or not target or ':' in platform or ':' in target or kind not in ('群聊', '私聊'):
+                raise ValueError('后台订阅的机器人连接 ID、目标 ID 或目标类型不正确')
+            session = f'{platform}:{"GroupMessage" if kind == "群聊" else "FriendMessage"}:{target}'
+            for part in accounts.replace('，', ',').split(','):
+                desired.add((session, username(part)))
+        # Validate the entire configuration before changing state or sending anything.
+        for session, account in desired:
+            self.store.add(session, account)
+        return [row for row in self.store.subscriptions(origin) if (row[1], row[2]) in desired]
+
     async def blocking(self, function, *args):
         # Cancellation must not release the lock while an Instaloader worker still runs.
         task = asyncio.create_task(asyncio.to_thread(function, *args))
@@ -66,7 +89,7 @@ class InsPlugin(Star):
 
     async def check(self, origin=None):
         async with self.lock:
-            subscriptions = self.store.subscriptions(origin)
+            subscriptions = self.selected_subscriptions(origin)
             accounts = sorted({row[2] for row in subscriptions})
             for account in accounts:
                 fetching = time.time() >= self.retry.get(account, 0)
@@ -161,6 +184,9 @@ class InsPlugin(Star):
     @ins.command('add')
     async def add_command(self, event: AstrMessageEvent, account: str):
         event.stop_event()
+        if self.config.get('dashboard_control', False):
+            yield event.plain_result('当前由管理后台维护订阅，请在插件配置中修改。')
+            return
         try:
             account = username(account)
         except ValueError as exc:
@@ -176,6 +202,9 @@ class InsPlugin(Star):
     @ins.command('set')
     async def set_command(self, event: AstrMessageEvent, accounts: str):
         event.stop_event()
+        if self.config.get('dashboard_control', False):
+            yield event.plain_result('当前由管理后台维护订阅，请在插件配置中修改。')
+            return
         try:
             async with self.lock:
                 selected = self.store.set_accounts(event.unified_msg_origin, accounts)
@@ -189,6 +218,9 @@ class InsPlugin(Star):
     @ins.command('remove')
     async def remove_command(self, event: AstrMessageEvent, account: str):
         event.stop_event()
+        if self.config.get('dashboard_control', False):
+            yield event.plain_result('当前由管理后台维护订阅，请在插件配置中修改。')
+            return
         try:
             account = username(account)
         except ValueError as exc:
@@ -199,7 +231,7 @@ class InsPlugin(Star):
         yield event.plain_result('已取消订阅。' if removed else '当前会话未订阅该账号。')
 
     def listing(self, origin):
-        rows = self.store.subscriptions(origin)
+        rows = self.selected_subscriptions(origin)
         if not rows:
             return '当前会话暂无订阅。使用 /ins add 用户名 添加。'
         lines = []
