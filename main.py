@@ -68,12 +68,13 @@ class InsPlugin(Star):
             subscriptions = self.store.subscriptions(origin)
             accounts = sorted({row[2] for row in subscriptions})
             for account in accounts:
-                if time.time() < self.retry.get(account, 0):
-                    continue
-                try:
-                    results, errors = await self.blocking(self.instagram.fetch, account)
-                except Exception as exc:
-                    results, errors = {}, {'account': error_message(exc)}
+                fetching = time.time() >= self.retry.get(account, 0)
+                results, errors = {}, {}
+                if fetching:
+                    try:
+                        results, errors = await self.blocking(self.instagram.fetch, account)
+                    except Exception as exc:
+                        results, errors = {}, {'account': error_message(exc)}
                 transient = any(value != '需要配置 Instagram 登录会话。'
                                 for value in errors.values())
                 if transient:
@@ -81,10 +82,12 @@ class InsPlugin(Star):
                     delay = min(21600, max(300, int(self.config.get('interval_seconds', 900)))
                                 * 2 ** min(self.failures[account], 5))
                     self.retry[account] = time.time() + delay
-                else:
+                elif fetching:
                     self.failures[account] = 0
                     self.retry.pop(account, None)
                 notices = [f'{key}: {value}' for key, value in errors.items()]
+                if not fetching:
+                    notices.append('抓取退避中，本轮只处理已保存的待发内容')
                 delivered = 0
                 for sub, target, name in subscriptions:
                     if name != account:

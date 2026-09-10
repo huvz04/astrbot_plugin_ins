@@ -131,3 +131,16 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         release.set()
         with self.assertRaises(asyncio.CancelledError):
             await task
+
+    async def test_fetch_backoff_does_not_pause_saved_deliveries(self):
+        import time
+        self.bot.retry['account'] = time.time() + 3600
+        self.bot.instagram.fetch = Mock()
+        self.bot.config['send_media'] = False
+        self.bot.store.defer(self.sub, 'post:1')
+        with patch.object(plugin.asyncio, 'sleep', new=AsyncMock()):
+            await self.bot.check()
+        self.bot.instagram.fetch.assert_not_called()
+        self.context.send_message.assert_awaited_once()
+        self.assertEqual(self.bot.store.pending(self.sub, include_deferred=True), [])
+        self.assertGreater(self.bot.retry['account'], time.time())
