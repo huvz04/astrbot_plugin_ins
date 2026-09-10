@@ -1,1 +1,2 @@
 instaloader>=4.15,<5
+curl_cffi>=0.13,<1

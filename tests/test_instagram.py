@@ -49,6 +49,41 @@ class InstagramTests(unittest.TestCase):
             self.assertIn(expected, message)
             self.assertNotIn('secret', message)
 
+    @patch('instagram.curl_requests.get')
+    def test_browser_tls_profile_fallback_uses_first_page_without_pagination(self, get):
+        get.return_value.status_code = 200
+        get.return_value.json.return_value = {'data': {'user': {
+            'id': '42', 'username': 'account', 'full_name': '', 'is_private': False,
+            'edge_owner_to_timeline_media': {'count': 1, 'page_info': {
+                'has_next_page': True, 'end_cursor': 'next'}, 'edges': [{'node': {
+                    '__typename': 'GraphImage', 'id': '1', 'shortcode': 'abc',
+                    'taken_at_timestamp': 1, 'dimensions': {'height': 1, 'width': 1},
+                    'display_url': 'https://cdn/image.jpg', 'is_video': False,
+                    'edge_media_to_caption': {'edges': []},
+                    'edge_media_preview_like': {'count': 0}, 'owner': {'id': '42'}}}]}}}}
+        adapter = Instagram(dict(enable_reels=False, enable_stories=False,
+                                 enable_highlights=False, scan_limit=30))
+        adapter.loader = Mock()
+        adapter.loader.context._session.cookies.get_dict.return_value = {'sessionid': 'safe'}
+        adapter.loader.context.is_logged_in = False
+        with patch('instagram.instaloader.Profile.from_username',
+                   side_effect=instaloader.AbortDownloadException('429 secret')):
+            results, errors = adapter.fetch('account')
+        self.assertEqual(errors, {})
+        self.assertEqual([p['key'] for p in results['posts']], ['post:1'])
+        get.assert_called_once()
+
+    @patch('instagram.curl_requests.get')
+    def test_browser_tls_fallback_status_is_redacted(self, get):
+        get.return_value.status_code = 429
+        adapter = Instagram({})
+        adapter.loader = Mock()
+        adapter.loader.context._session.cookies.get_dict.return_value = {}
+        with self.assertRaises(instaloader.AbortDownloadException) as caught:
+            adapter.browser_profile('account', Exception())
+        self.assertIn('429', error_message(caught.exception))
+        self.assertNotIn('account', str(caught.exception))
+
     def test_config_cookie_login_overrides_file_and_applies_proxy(self):
         adapter = Instagram(dict(login_username='user', login_cookie='sessionid=a; csrftoken=b',
                                  session_file='does-not-exist', proxy='http://localhost:7890'))

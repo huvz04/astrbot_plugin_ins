@@ -7,6 +7,7 @@ import time
 from datetime import timezone
 
 import instaloader
+from curl_cffi import requests as curl_requests
 
 
 class LoginConfigurationError(ValueError):
@@ -98,6 +99,57 @@ class Instagram:
         if time.monotonic() >= self.deadline:
             raise TimeoutError('Instagram check budget exceeded')
 
+    def browser_profile(self, account, original):
+        """Retry profile resolution with a browser TLS fingerprint."""
+        self.check_deadline()
+        self.report('标准资料接口失败，使用 Chrome TLS 指纹重试')
+        loader = self.connect()
+        proxy = str(self.config.get('proxy', '')).strip() or None
+        cookies = loader.context._session.cookies.get_dict()
+        try:
+            response = curl_requests.get(
+                'https://www.instagram.com/api/v1/users/web_profile_info/',
+                params={'username': account}, cookies=cookies, proxy=proxy,
+                impersonate='chrome', timeout=30,
+                headers={
+                    'Accept': '*/*',
+                    'Referer': f'https://www.instagram.com/{account}/',
+                    'X-IG-App-ID': '936619743392459',
+                    'X-Requested-With': 'XMLHttpRequest',
+                })
+            if response.status_code != 200:
+                raise instaloader.AbortDownloadException(
+                    f'HTTP {response.status_code} from browser TLS fallback')
+            data = response.json().get('data') or {}
+            node = data.get('user')
+            if not node:
+                raise instaloader.ProfileNotExistsException(
+                    f'Profile {account} was not returned by browser TLS fallback')
+            profile = instaloader.Profile(loader.context, node)
+            profile._has_full_metadata = True
+            edges = ((node.get('edge_owner_to_timeline_media') or {}).get('edges') or [])
+            posts = [instaloader.Post(loader.context, edge['node'], profile)
+                     for edge in edges if edge.get('node')]
+            self.report(f'Chrome TLS 指纹重试成功，首屏帖子 {len(posts)} 条')
+            return profile, posts
+        except (instaloader.InstaloaderException,
+                instaloader.AbortDownloadException, TimeoutError):
+            raise
+        except Exception as exc:
+            # Keep exception details private: curl errors can include request URLs.
+            kind = type(exc).__name__
+            if kind in ('Timeout', 'TimeoutError'):
+                raise TimeoutError('browser TLS fallback timed out') from None
+            raise instaloader.ConnectionException(
+                f'browser TLS fallback failed ({kind})') from None
+
+    def resolve_profile(self, account):
+        loader = self.connect()
+        try:
+            return instaloader.Profile.from_username(loader.context, account), None
+        except Exception as original:
+            return self.browser_profile(account, original)
+
     def connect(self):
         if self.loader is not None:
             return self.loader
@@ -157,11 +209,14 @@ class Instagram:
         self.deadline = time.monotonic() + max(30, int(self.config.get('check_timeout', 120)))
         self.report('连接 Instagram、获取账号资料')
         loader = self.connect()
-        profile = instaloader.Profile.from_username(loader.context, account)
+        profile, first_posts = self.resolve_profile(account)
         limit = max(1, min(500, int(self.config.get('scan_limit', 30))))
         results, errors = {}, {}
         sources = {
-            'posts': lambda: (self.post(p) for p in itertools.islice(profile.get_posts(), limit)),
+            # Browser fallback contains a complete first page. Do not immediately
+            # hit the retired pagination doc_id after successfully recovering it.
+            'posts': lambda: (self.post(p) for p in itertools.islice(
+                iter(first_posts) if first_posts is not None else profile.get_posts(), limit)),
             'reels': lambda: (self.post(p) for p in itertools.islice(profile.get_reels(), limit)),
             'stories': lambda: (self.story(i, account)
                 for s in loader.get_stories(userids=[profile.userid]) for i in s.get_items()),
