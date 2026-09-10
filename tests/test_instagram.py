@@ -38,6 +38,17 @@ class InstagramTests(unittest.TestCase):
                 parse_cookies(value)
             self.assertNotIn('secret', error_message(caught.exception))
 
+    def test_fatal_http_status_is_specific_and_redacted(self):
+        cases = {
+            '401 signed-url-secret': '登录状态无效',
+            '403 signed-url-secret': '网络出口被拒绝',
+            '429 signed-url-secret': '即使首次请求也可能发生',
+        }
+        for detail, expected in cases.items():
+            message = error_message(instaloader.AbortDownloadException(detail))
+            self.assertIn(expected, message)
+            self.assertNotIn('secret', message)
+
     def test_config_cookie_login_overrides_file_and_applies_proxy(self):
         adapter = Instagram(dict(login_username='user', login_cookie='sessionid=a; csrftoken=b',
                                  session_file='does-not-exist', proxy='http://localhost:7890'))

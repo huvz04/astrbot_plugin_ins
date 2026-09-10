@@ -1,7 +1,7 @@
 name: astrbot_plugin_ins
 display_name: Instagram 订阅推送
 desc: 订阅 Instagram 账号，自动转发帖子、Reels、Story 和精选动态，支持登录会话、失败重试与持久化去重。
-version: 0.1.4
+version: 0.1.5
 author: dache
 repo: https://github.com/huvz04/astrbot_plugin_ins
 astrbot_version: ">=4.16.0"

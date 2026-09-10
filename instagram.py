@@ -2,6 +2,7 @@
 import itertools
 import json
 import os
+import re
 import time
 from datetime import timezone
 
@@ -64,12 +65,23 @@ def error_message(exc):
         return str(exc)
     if isinstance(exc, TimeoutError):
         return '检查超时或限流等待超过预算，已停止本轮，稍后重试。'
+    # Instaloader wraps fatal HTTP responses in AbortDownloadException. Read only
+    # the status code; never expose the full exception because it can contain URLs.
+    status = re.search(r'(?<!\d)(401|403|429)(?!\d)', str(exc))
+    if status and status.group(1) == '401':
+        return 'Instagram 返回 HTTP 401：登录状态无效或已过期，请更新 Cookie 后重载插件。'
+    if status and status.group(1) == '403':
+        return 'Instagram 返回 HTTP 403：当前登录状态、请求或网络出口被拒绝。'
+    if status and status.group(1) == '429':
+        return 'Instagram 返回 HTTP 429：资料接口被限流；即使首次请求也可能发生，请等待后重试。'
     if 'Login' in name or 'Unauthorized' in name:
         return '需要有效登录会话；请在插件配置中更新 Cookie（或会话文件）并重载插件。'
     if 'Private' in name:
         return '私密账号不可访问，请确认登录账号已获准关注。'
-    if 'TooMany' in name or 'Abort' in name:
-        return 'Instagram 限流或拒绝访问；将退避后重试。'
+    if 'TooMany' in name:
+        return 'Instagram 返回请求过多；将退避后重试。'
+    if 'Abort' in name:
+        return 'Instagram 拒绝了请求；将退避后重试，请查看同轮日志中的 HTTP 状态。'
     if 'NotExists' in name or 'NotFound' in name:
         return '账号或内容不存在，或当前登录账号无权访问。'
     return f'获取失败（{name}），请检查网络、登录会话及 Instagram 验证提示。'
