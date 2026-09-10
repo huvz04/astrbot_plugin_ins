@@ -1,0 +1,16 @@
+{
+  "enabled": {"description": "启用自动检查", "type": "bool", "default": true},
+  "interval_seconds": {"description": "检查间隔（秒）", "type": "int", "default": 900, "hint": "最少300秒，附加随机延迟；失败会逐步退避至最多6小时。"},
+  "login_username": {"description": "用于登录的 Instagram 用户名", "type": "string", "default": "", "hint": "不是要订阅的账号。与 session_file 配合使用，修改后重载插件。"},
+  "session_file": {"description": "Instaloader 登录会话文件路径", "type": "string", "default": "", "hint": "AstrBot 所在机器或容器内的路径。只使用自己生成的可信会话文件，不要发到群里。留空使用 Instaloader 默认路径。"},
+  "proxy": {"description": "HTTP/HTTPS 代理地址（可选）", "type": "string", "default": "", "hint": "例如 http://127.0.0.1:7890；用于抓取与媒体下载。容器中的127.0.0.1是容器本身。修改后重载。"},
+  "enable_posts": {"description": "监控帖子（含轮播图、视频）", "type": "bool", "default": true},
+  "enable_reels": {"description": "监控 Reels", "type": "bool", "default": true},
+  "enable_stories": {"description": "监控 Story（需要登录）", "type": "bool", "default": true},
+  "enable_highlights": {"description": "监控精选动态（需要登录）", "type": "bool", "default": true},
+  "enable_tagged": {"description": "监控被标记的帖子", "type": "bool", "default": false, "hint": "可选，会增加请求次数；来源为其他账号发布的帖子。"},
+  "scan_limit": {"description": "每次扫描的帖子/Reels/精选集合数量", "type": "int", "default": 30, "hint": "1–500；Story 检查所有当前可见项目，精选检查前N个集合内所有项目。不是完整历史归档。"},
+  "push_limit": {"description": "每个账号每个会话每轮最多推送条数", "type": "int", "default": 10},
+  "send_media": {"description": "下载并发送图片与视频", "type": "bool", "default": true, "hint": "关闭后只发送正文和原链接。"},
+  "max_media_mb": {"description": "单个媒体下载上限（MB）", "type": "int", "default": 100, "hint": "超过上限时保留原链接和重试队列；可提高上限，或关闭媒体发送后完成队列。"}
+}
