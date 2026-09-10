@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
 import instaloader
-from instagram import Instagram, LoginConfigurationError, error_message, parse_cookies
+from instagram import Instagram, LoginConfigurationError, error_message, parse_cookies, BoundedRateController
 
 
 def post(mediaid=1):
@@ -14,6 +14,20 @@ def post(mediaid=1):
 
 
 class InstagramTests(unittest.TestCase):
+    def test_long_rate_wait_aborts_instead_of_hanging(self):
+        import time
+        adapter = Instagram({})
+        adapter.deadline = time.monotonic() + 1
+        controller = BoundedRateController(Mock(), adapter)
+        with self.assertRaises(TimeoutError):
+            controller.sleep(600)
+
+    def test_expired_budget_stops_before_another_request(self):
+        adapter = Instagram({})
+        adapter.deadline = 0
+        controller = BoundedRateController(Mock(), adapter)
+        with self.assertRaises(TimeoutError):
+            controller.wait_before_query('query')
     def test_cookie_header_and_json(self):
         self.assertEqual(parse_cookies('Cookie: sessionid=a%3Ab=; csrftoken=b')['sessionid'], 'a%3Ab=')
         self.assertEqual(parse_cookies('{"sessionid":"a", "csrftoken":"b"}')['csrftoken'], 'b')

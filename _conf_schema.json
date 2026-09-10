@@ -1,10 +1,4 @@
 {
-  "dashboard_control": {
-    "description": "使用后台订阅列表管理推送",
-    "type": "bool",
-    "default": false,
-    "hint": "开启后仅向下方启用的目标推送，旧聊天命令订阅暂停使用；不会向群发送配置通知。"
-  },
   "subscriptions": {
     "description": "群聊与私聊订阅列表",
     "type": "template_list",
@@ -53,7 +47,8 @@
           }
         }
       }
-    }
+    },
+    "hint": "与 /ins add、set、remove 共用此列表；指令修改后刷新后台页面即可看到。每个账号抓取一次，再向绑定目标分发。"
   },
   "enabled": {
     "description": "启用自动检查",
@@ -138,5 +133,11 @@
     "type": "int",
     "default": 100,
     "hint": "超过上限时保留原链接和重试队列；可提高上限，或关闭媒体发送后完成队列。"
+  },
+  "check_timeout": {
+    "description": "单账号检查预算（秒）",
+    "type": "int",
+    "default": 120,
+    "hint": "限制账号检查及内部限流等待；已在途请求仍受30秒网络超时限制，因此结束可能稍晚。后台日志每15秒显示等待耗时。"
   }
 }

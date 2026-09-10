@@ -2,6 +2,7 @@
 import itertools
 import json
 import os
+import time
 from datetime import timezone
 
 import instaloader
@@ -9,6 +10,22 @@ import instaloader
 
 class LoginConfigurationError(ValueError):
     pass
+
+
+class BoundedRateController(instaloader.RateController):
+    def __init__(self, context, owner):
+        super().__init__(context)
+        self.owner = owner
+
+    def wait_before_query(self, query_type):
+        self.owner.check_deadline()
+        super().wait_before_query(query_type)
+
+    def sleep(self, secs):
+        if time.monotonic() + secs >= self.owner.deadline:
+            raise TimeoutError('Instagram rate wait exceeds check budget')
+        self.owner.report(f'限流等待 {secs:.0f} 秒')
+        super().sleep(secs)
 
 
 def parse_cookies(value):
@@ -45,6 +62,8 @@ def error_message(exc):
     name = type(exc).__name__
     if isinstance(exc, LoginConfigurationError):
         return str(exc)
+    if isinstance(exc, TimeoutError):
+        return '检查超时或限流等待超过预算，已停止本轮，稍后重试。'
     if 'Login' in name or 'Unauthorized' in name:
         return '需要有效登录会话；请在插件配置中更新 Cookie（或会话文件）并重载插件。'
     if 'Private' in name:
@@ -60,12 +79,19 @@ class Instagram:
     def __init__(self, config):
         self.config = config
         self.loader = None
+        self.deadline = float('inf')
+        self.report = lambda message: None
+
+    def check_deadline(self):
+        if time.monotonic() >= self.deadline:
+            raise TimeoutError('Instagram check budget exceeded')
 
     def connect(self):
         if self.loader is not None:
             return self.loader
         loader = instaloader.Instaloader(
             quiet=True, max_connection_attempts=1, request_timeout=30,
+            rate_controller=lambda context: BoundedRateController(context, self),
             fatal_status_codes=[401, 403, 429])
         try:
             login = str(self.config.get('login_username', '')).strip()
@@ -116,6 +142,8 @@ class Instagram:
                            'url': item.video_url if item.is_video else item.url}]}
 
     def fetch(self, account):
+        self.deadline = time.monotonic() + max(30, int(self.config.get('check_timeout', 120)))
+        self.report('连接 Instagram、获取账号资料')
         loader = self.connect()
         profile = instaloader.Profile.from_username(loader.context, account)
         limit = max(1, min(500, int(self.config.get('scan_limit', 30))))
@@ -137,10 +165,14 @@ class Instagram:
                 errors[source] = '需要配置 Instagram 登录会话。'
                 continue
             try:
+                self.check_deadline()
+                self.report(f'请求 {source}')
                 results[source] = list(fetch())
+                self.report(f'{source} 成功，获取 {len(results[source])} 条')
             except Exception as exc:
                 errors[source] = error_message(exc)
-                if isinstance(exc, instaloader.AbortDownloadException):
+                self.report(f'{source} 失败：{errors[source]}')
+                if isinstance(exc, (instaloader.AbortDownloadException, TimeoutError)):
                     break  # Do not hammer other endpoints after 401/403/429.
         return results, errors
 
@@ -160,8 +192,11 @@ class Instagram:
                 if int(response.headers.get('Content-Length', 0)) > maximum:
                     raise ValueError('media exceeds size limit')
                 size = 0
+                deadline = time.monotonic() + 120
                 with temporary.open('wb') as output:
                     for chunk in response.iter_content(128 * 1024):
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError('media download budget exceeded')
                         size += len(chunk)
                         if size > maximum:
                             raise ValueError('media exceeds size limit')

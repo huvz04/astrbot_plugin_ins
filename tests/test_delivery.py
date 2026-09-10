@@ -59,6 +59,41 @@ plugin = load_plugin()
 
 
 class DeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_commands_and_dashboard_share_saved_configuration(self):
+        class Config(dict):
+            def save_config(self):
+                self.saved = True
+        self.bot.config = Config(self.bot.config)
+        self.bot.edit_subscriptions('bot:GroupMessage:123', 'first,second', 'set')
+        self.assertTrue(self.bot.config.saved)
+        rows = self.bot.config['subscriptions']
+        target = next(r for r in rows if r.get('target_id') == '123')
+        self.assertEqual(target['accounts'], 'first,second')
+        target['accounts'] = 'third'
+        self.assertEqual({r[2] for r in self.bot.selected_subscriptions('bot:GroupMessage:123')}, {'third'})
+        self.bot.edit_subscriptions('bot:GroupMessage:123', 'fourth', 'add')
+        self.assertEqual({r[2] for r in self.bot.selected_subscriptions('bot:GroupMessage:123')}, {'third', 'fourth'})
+        self.bot.edit_subscriptions('bot:GroupMessage:123', 'third', 'remove')
+        self.assertEqual({r[2] for r in self.bot.selected_subscriptions('bot:GroupMessage:123')}, {'fourth'})
+
+    async def test_manual_origin_fetches_once_and_distributes_to_all_bindings(self):
+        self.bot.store.add('other', 'account')
+        other = self.bot.store.subscriptions('other')[0][0]
+        self.bot.store.ingest(other, 'posts', [])
+        self.bot.instagram.fetch = Mock(return_value=({'posts': [self.item]}, {}))
+        self.bot.config['send_media'] = False
+        with patch.object(plugin.asyncio, 'sleep', new=AsyncMock()):
+            await self.bot.check('group')
+        self.bot.instagram.fetch.assert_called_once_with('account')
+        self.assertEqual({c.args[0] for c in self.context.send_message.await_args_list}, {'group', 'other'})
+
+    async def test_legacy_migration_only_once_and_removal_stays_removed(self):
+        self.assertEqual(len(self.bot.selected_subscriptions()), 1)
+        self.bot.config['subscriptions'] = []
+        self.assertEqual(self.bot.selected_subscriptions(), [])
+        self.assertEqual(self.bot.store.subscriptions(), [])
+        self.assertEqual(self.bot.selected_subscriptions(), [])
+
     async def test_dashboard_targets_are_silent_and_authoritative(self):
         self.bot.config.update(dashboard_control=True, subscriptions=[
             dict(platform_id='bot', target_id='123', target_type='群聊', accounts='one,two'),

@@ -26,6 +26,7 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.executescript('''
             PRAGMA foreign_keys=ON;
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id INTEGER PRIMARY KEY, origin TEXT NOT NULL, account TEXT NOT NULL,
                 UNIQUE(origin, account));
