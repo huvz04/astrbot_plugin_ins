@@ -1,8 +1,9 @@
 {
   "enabled": {"description": "启用自动检查", "type": "bool", "default": true},
   "interval_seconds": {"description": "检查间隔（秒）", "type": "int", "default": 900, "hint": "最少300秒，附加随机延迟；失败会逐步退避至最多6小时。"},
-  "login_username": {"description": "用于登录的 Instagram 用户名", "type": "string", "default": "", "hint": "不是要订阅的账号。与 session_file 配合使用，修改后重载插件。"},
-  "session_file": {"description": "Instaloader 登录会话文件路径", "type": "string", "default": "", "hint": "AstrBot 所在机器或容器内的路径。只使用自己生成的可信会话文件，不要发到群里。留空使用 Instaloader 默认路径。"},
+  "login_username": {"description": "Instagram 登录用户名", "type": "string", "default": "", "hint": "填写你在浏览器中已登录的账号名，不是监控目标；与下方 Cookie 配合使用。保存后重载插件。"},
+  "login_cookie": {"description": "Instagram 登录 Cookie", "type": "text", "default": "", "hint": "粘贴浏览器已登录 Instagram 请求中的完整 Cookie 请求头，需含 sessionid 和 csrftoken；也支持 JSON 键值对象。优先于会话文件。Cookie 是登录凭证，仅填在管理面板，不要发到群里。保存后重载插件。"},
+  "session_file": {"description": "登录会话文件路径（可选，旧方式）", "type": "string", "default": "", "hint": "已填写 Cookie 时无需设置。仅在 Cookie 为空时使用；路径必须在 AstrBot 主机/容器内。"},
   "proxy": {"description": "HTTP/HTTPS 代理地址（可选）", "type": "string", "default": "", "hint": "例如 http://127.0.0.1:7890；用于抓取与媒体下载。容器中的127.0.0.1是容器本身。修改后重载。"},
   "enable_posts": {"description": "监控帖子（含轮播图、视频）", "type": "bool", "default": true},
   "enable_reels": {"description": "监控 Reels", "type": "bool", "default": true},

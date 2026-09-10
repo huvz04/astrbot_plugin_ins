@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
 import instaloader
-from instagram import Instagram
+from instagram import Instagram, LoginConfigurationError, error_message, parse_cookies
 
 
 def post(mediaid=1):
@@ -14,6 +14,32 @@ def post(mediaid=1):
 
 
 class InstagramTests(unittest.TestCase):
+    def test_cookie_header_and_json(self):
+        self.assertEqual(parse_cookies('Cookie: sessionid=a%3Ab=; csrftoken=b')['sessionid'], 'a%3Ab=')
+        self.assertEqual(parse_cookies('{"sessionid":"a", "csrftoken":"b"}')['csrftoken'], 'b')
+
+    def test_invalid_cookie_is_rejected_without_disclosing_value(self):
+        for value in ('sessionid=secret', '{bad-secret}', '{"sessionid":123}', 'secret'):
+            with self.assertRaises(LoginConfigurationError) as caught:
+                parse_cookies(value)
+            self.assertNotIn('secret', error_message(caught.exception))
+
+    def test_config_cookie_login_overrides_file_and_applies_proxy(self):
+        adapter = Instagram(dict(login_username='user', login_cookie='sessionid=a; csrftoken=b',
+                                 session_file='does-not-exist', proxy='http://localhost:7890'))
+        try:
+            loader = adapter.connect()
+            self.assertTrue(loader.context.is_logged_in)
+            self.assertEqual(loader.context.username, 'user')
+            self.assertEqual(loader.context._session.cookies.get('sessionid'), 'a')
+            self.assertEqual(loader.context._session.proxies['https'], 'http://localhost:7890')
+        finally:
+            adapter.close()
+
+    def test_cookie_requires_username(self):
+        with self.assertRaises(LoginConfigurationError):
+            Instagram({'login_cookie': 'sessionid=a; csrftoken=b'}).connect()
+
     def test_carousel_keeps_image_video_order(self):
         p = post()
         p.typename = 'GraphSidecar'

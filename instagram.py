@@ -1,16 +1,52 @@
 """Instaloader adapter. All methods run on a single background worker."""
 import itertools
+import json
 import os
 from datetime import timezone
 
 import instaloader
 
 
+class LoginConfigurationError(ValueError):
+    pass
+
+
+def parse_cookies(value):
+    """Accept a browser Cookie header or a JSON name/value object."""
+    value = value.strip()
+    try:
+        if value.startswith('{'):
+            cookies = json.loads(value)
+            if not isinstance(cookies, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str) for k, v in cookies.items()):
+                raise ValueError()
+        else:
+            if value.lower().startswith('cookie:'):
+                value = value.split(':', 1)[1].strip()
+            cookies = {}
+            for part in value.split(';'):
+                if not part.strip():
+                    continue
+                key, content = part.strip().split('=', 1)
+                cookies[key.strip()] = content.strip()
+        if not cookies.get('sessionid') or not cookies.get('csrftoken'):
+            raise ValueError()
+        if any('\n' in v or '\r' in v for v in cookies.values()):
+            raise ValueError()
+        return cookies
+    except (ValueError, TypeError):
+        raise LoginConfigurationError(
+            '登录 Cookie 格式不正确，需要包含 sessionid 和 csrftoken；'
+            '请在插件配置中粘贴完整 Cookie 请求头或 JSON 键值对象。') from None
+
+
 def error_message(exc):
     # Do not expose upstream exceptions: they may contain signed URLs or credentials.
     name = type(exc).__name__
+    if isinstance(exc, LoginConfigurationError):
+        return str(exc)
     if 'Login' in name or 'Unauthorized' in name:
-        return '需要有效登录会话；请更新 session 文件并重载插件。'
+        return '需要有效登录会话；请在插件配置中更新 Cookie（或会话文件）并重载插件。'
     if 'Private' in name:
         return '私密账号不可访问，请确认登录账号已获准关注。'
     if 'TooMany' in name or 'Abort' in name:
@@ -34,7 +70,12 @@ class Instagram:
         try:
             login = str(self.config.get('login_username', '')).strip()
             session = str(self.config.get('session_file', '')).strip()
-            if login:
+            cookie = str(self.config.get('login_cookie', '')).strip()
+            if cookie:
+                if not login:
+                    raise LoginConfigurationError('填写登录 Cookie 时也需要填写对应的登录用户名。')
+                loader.load_session(login, parse_cookies(cookie))
+            elif login:
                 loader.load_session_from_file(login, session or None)
             elif session:
                 raise ValueError('session_file requires login_username')

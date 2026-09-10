@@ -36,27 +36,36 @@ https://github.com/huvz04/astrbot_plugin_ins
 
 源码与更新：[huvz04/astrbot_plugin_ins](https://github.com/huvz04/astrbot_plugin_ins)。
 
-## 登录配置（建议先完成）
+## 登录配置（直接在 AstrBot 面板填写）
 
-Story 和精选需要登录，公开帖子也可能被 Instagram 要求登录。
-插件不接收聊天中的密码、Cookie 或验证码。使用自己生成的 Instaloader 会话文件：
+在「AstrBot → 插件管理 → Instagram 订阅推送 → 配置」填写：
 
-```sh
-python -m pip install "instaloader>=4.15,<5"
-python -m instaloader --login YOUR_LOGIN_USERNAME --sessionfile session-ins
-```
+1. **Instagram 登录用户名**：你在浏览器中登录的账号名，不是监控目标。
+2. **Instagram 登录 Cookie**：已登录浏览器的完整 Cookie 请求头，包含 `sessionid` 和 `csrftoken`。
+3. **代理地址**：按需填写，如 `http://127.0.0.1:7890`。容器里请使用容器可访问的代理地址。
+4. 保存配置并重载插件，然后在目标会话执行 `/ins check`、`/ins list` 查看结果。
 
-按终端提示登录；如 Instagram 要求验证，在浏览器中完成后再试。
-也可在能正常登录的电脑生成文件，再复制到 AstrBot 主机。
-在插件配置填写：
+无需在终端执行登录命令，也无需生成或上传会话文件。登录凭证通过面板配置的 Cookie 提供，
+不是在面板内输入账号密码登录；Instagram 要求的人机验证仍需在浏览器中完成。
 
-- `login_username`：生成会话的登录账号名，不是监控目标。
-- `session_file`：该文件在 AstrBot 主机或容器内的绝对路径，例如 `/AstrBot/data/session-ins`。
-- `proxy`：按需填写 HTTP 代理，如 `http://127.0.0.1:7890`。容器需填其可访问的代理地址。
+### 获取 Cookie
 
-生成会话的命令需自行具备访问 Instagram 的网络；插件代理配置只影响插件进程内的抓取。
-会话文件包含登录凭证，使用 Instaloader 的序列化格式，只导入自己生成的可信文件。
-不要提交到 GitHub、上传到群里或附在插件安装包内。修改登录/代理配置后重载插件。
+在电脑浏览器登录 Instagram 后，按 F12 打开开发者工具，进入「Network / 网络」，
+刷新页面，选取发往 `www.instagram.com` 的请求，在「Request Headers / 请求标头」
+里找到 `Cookie`，复制它的完整值到插件配置。不要复制 `Set-Cookie` 响应头。
+也支持 `{"sessionid":"你的值","csrftoken":"你的值"}` 这样的 JSON 键值对象。
+Cookie 内容应来自与登录用户名对应的账号；不要修改其中的编码字符。
+
+Cookie 是登录凭证，保存在 AstrBot 插件配置中，不是加密凭证保险库。
+仅在你自己的管理面板填写，不要发到群里、提交到仓库或分享包含配置的截图。
+插件的错误提示不会回显 Cookie。会话失效后，在浏览器重新登录，更新 Cookie 并重载插件。
+Story、精选和私密内容仍取决于当前登录账号的访问权限；Cookie 不保证绕过 Instagram 验证。
+
+### 已有会话文件（兼容旧方式）
+
+原来的 `session_file` 保留为可选配置。如果已经生成 Instaloader 会话文件，
+可将 `login_cookie` 留空，填写 `login_username` 和文件在 AstrBot 主机/容器内的路径。
+填写 Cookie 时优先使用 Cookie，不读取会话文件。只导入自己生成的可信会话文件。
 
 ## 使用
 
