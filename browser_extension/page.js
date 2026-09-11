@@ -124,13 +124,65 @@
   }
 
   function instagramHeaders() {
-    const appId = sessionStorage.getItem('__ig_app_id') || '936619743392459';
-    const wwwClaim = sessionStorage.getItem('__ig_www_claim') ||
+    let moduleAppId = '';
+    let moduleClaim = '';
+    try { moduleAppId = window.require?.('PolarisConfig')?.getIGAppID?.() || ''; } catch (_) {}
+    try { moduleClaim = window.require?.('PolarisWWWClaim')?.getWWWClaim?.() || ''; } catch (_) {}
+    const appId = moduleAppId || sessionStorage.getItem('__ig_app_id') || '936619743392459';
+    const wwwClaim = moduleClaim || sessionStorage.getItem('__ig_www_claim') ||
       sessionStorage.getItem('www-claim-v2') || '0';
-    return {'x-ig-app-id': appId, 'x-ig-www-claim': wwwClaim};
+    const csrf = String(document.cookie || '').match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1] || '';
+    return {
+      'x-ig-app-id': appId, 'x-ig-www-claim': wwwClaim,
+      'x-requested-with': 'XMLHttpRequest', 'x-asbd-id': '129477',
+      ...(csrf ? {'x-csrftoken': csrf} : {}),
+    };
   }
 
-  async function fetchAccountFeed(account, requested, limit) {
+  async function rawAccountFeed(account, query) {
+    const url = new URL(
+      `https://www.instagram.com/api/v1/feed/user/${encodeURIComponent(account)}/username/`);
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    const response = await fetch(url.href, {
+      headers: instagramHeaders(), credentials: 'include', redirect: 'follow',
+    });
+    let text = '';
+    try { text = await response.text(); } catch (_) {}
+    const cleaned = text.replace(/^\s*for\s*\(\s*;\s*;\s*\)\s*;?\s*/, '');
+    let body;
+    try { body = JSON.parse(cleaned); } catch (_) {
+      const kind = /^\s*</.test(text) ? 'HTML 页面' : '非 JSON 内容';
+      throw new Error(`原始请求返回 ${kind}（HTTP ${response.status}）`);
+    }
+    if (!response.ok) {
+      throw new Error(String(first(body?.message, body?.error, `HTTP ${response.status}`)));
+    }
+    return body;
+  }
+
+  async function accountFeedPage(instapi, account, query) {
+    const errors = [];
+    const path = `/api/v1/feed/user/${encodeURIComponent(account)}/username/`;
+    if (instapi) {
+      try {
+        const body = await apiGet(instapi, path, query);
+        if (Array.isArray(body?.items)) return {body, method: 'instagram-module'};
+        errors.push('页面模块返回结构无法解析');
+      } catch (error) {
+        errors.push(`页面模块：${String(error.message || error)}`);
+      }
+    }
+    try {
+      const body = await rawAccountFeed(account, query);
+      if (Array.isArray(body?.items)) return {body, method: 'raw-fetch'};
+      errors.push('原始请求返回结构无法解析');
+    } catch (error) {
+      errors.push(String(error.message || error));
+    }
+    throw new Error(errors.join('；'));
+  }
+
+  async function fetchAccountFeed(instapi, account, requested, limit) {
     const found = {posts: [], reels: []};
     const candidates = {posts: 0, reels: 0};
     const seen = new Set();
@@ -138,20 +190,13 @@
     let pages = 0;
     let feedItems = 0;
     let ownerId = '';
+    const methods = new Set();
     for (; pages < 5; pages++) {
-      const query = new URLSearchParams({count: '12'});
-      if (maxId) query.set('max_id', maxId);
-      const response = await fetch(
-        `/api/v1/feed/user/${encodeURIComponent(account)}/username/?${query}`,
-        {headers: instagramHeaders(), credentials: 'same-origin'},
-      );
-      let body;
-      try { body = await response.json(); } catch (_) {
-        throw new Error(`Instagram 账号媒体接口返回 HTTP ${response.status}`);
-      }
-      if (!response.ok) {
-        throw new Error(String(first(body?.message, body?.error, `HTTP ${response.status}`)));
-      }
+      const query = {count: '12'};
+      if (maxId) query.max_id = maxId;
+      const page = await accountFeedPage(instapi, account, query);
+      const body = page.body;
+      methods.add(page.method);
       if (!Array.isArray(body?.items)) throw new Error('Instagram 账号媒体接口返回结构无法解析');
       feedItems += body.items.length;
       for (const node of body.items) {
@@ -179,7 +224,7 @@
         throw new Error(`${source} 账号接口返回 ${candidates[source]} 条，但内容结构无法解析`);
       }
     }
-    return {found, candidates, pages, feedItems, ownerId};
+    return {found, candidates, pages, feedItems, ownerId, method: [...methods].join('+')};
   }
 
   async function fetchLinkedPosts(account, requested, limit) {
@@ -222,6 +267,7 @@
     const limit = Math.max(1, Math.min(30, Number(payload.scanLimit) || 30));
     const result = {account, sources: {}, diagnostics: {}};
     const highlightIds = [];
+    const highlightTitles = new Map();
     if (requested.has('highlights')) {
       for (const anchor of document.querySelectorAll('a[href*="/stories/highlights/"]')) {
         const match = anchor.href.match(/\/stories\/highlights\/(\d+)/);
@@ -232,12 +278,15 @@
 
     const needsPosts = requested.has('posts') || requested.has('reels');
     let ownerId = '';
+    let instapi = null;
     if (needsPosts) {
       try {
-        const feed = await fetchAccountFeed(account, requested, limit);
+        try { instapi = await requireModule('PolarisInstapi', 5000); } catch (_) {}
+        const feed = await fetchAccountFeed(instapi, account, requested, limit);
         ownerId = feed.ownerId;
         result.diagnostics.feedPages = feed.pages;
         result.diagnostics.feedItems = feed.feedItems;
+        result.diagnostics.feedMethod = feed.method;
         for (const source of ['posts', 'reels']) {
           if (requested.has(source)) result.sources[source] = feed.found[source];
           result.diagnostics[source] = {
@@ -263,13 +312,33 @@
     }
 
     if (requested.has('stories') || requested.has('highlights')) {
-      const instapi = await requireModule('PolarisInstapi');
+      instapi ||= await requireModule('PolarisInstapi');
       if (!ownerId) {
         try {
           const profile = await apiGet(instapi, '/api/v1/users/web_profile_info/', {username: account});
           const user = first(profile?.user, profile?.data?.user);
           ownerId = String(first(user?.id, user?.pk, ''));
         } catch (_) {}
+      }
+      let highlightTrayConfirmed = false;
+      if (requested.has('highlights') && /^\d+$/.test(ownerId)) {
+        try {
+          const trayResponse = await apiGet(
+            instapi, `/api/v1/highlights/${ownerId}/highlights_tray/`, {});
+          const tray = first(trayResponse?.tray, trayResponse?.data?.tray);
+          if (!Array.isArray(tray)) throw new Error('精选列表结构无法解析');
+          highlightTrayConfirmed = true;
+          result.diagnostics.highlightTray = tray.length;
+          for (const reel of tray) {
+            const id = String(first(reel?.id, reel?.reel_id, reel?.pk, '')).replace(/^highlight:/, '');
+            if (!/^\d+$/.test(id) || highlightIds.includes(id)) continue;
+            highlightIds.push(id);
+            highlightTitles.set(id, String(first(reel?.title, reel?.highlight_title, '精选')));
+            if (highlightIds.length >= limit) break;
+          }
+        } catch (error) {
+          result.diagnostics.highlightTrayError = String(error.message || error);
+        }
       }
       const reelIds = [];
       if (requested.has('stories') && /^\d+$/.test(ownerId)) reelIds.push(ownerId);
@@ -282,7 +351,9 @@
           const reels = first(feed?.reels, feed?.data?.reels, {});
           const reelsMedia = first(feed?.reels_media, feed?.data?.reels_media);
           if (requested.has('stories') && /^\d+$/.test(ownerId)) result.sources.stories = [];
-          if (requested.has('highlights')) result.sources.highlights = [];
+          if (requested.has('highlights') && (highlightIds.length || highlightTrayConfirmed)) {
+            result.sources.highlights = [];
+          }
           const entries = Array.isArray(reelsMedia)
             ? reelsMedia.map((reel, index) => [String(first(reel?.id, reel?.reel_id, reelIds[index], '')), reel])
             : Object.entries(reels || {});
@@ -295,14 +366,16 @@
               String(reel?.reel_type || '').includes('highlight');
             const source = isHighlight ? 'highlights' : 'stories';
             if (!requested.has(source)) continue;
-            const title = isHighlight ? String(first(reel?.title, reel?.highlight_title, '精选')) : '';
+            const highlightId = String(first(reel?.id, key, requestedId, '')).replace(/^highlight:/, '');
+            const title = isHighlight ? String(first(
+              reel?.title, reel?.highlight_title, highlightTitles.get(highlightId), '精选')) : '';
             result.sources[source].push(...(first(reelMedia?.items, reel?.items, [])).map(item =>
               normalizeStory(item, account, title)).filter(Boolean));
           }
         } catch (_) {
           // Successful post streams can still be ingested when Story endpoints are unavailable.
         }
-      } else if (requested.has('highlights') && !highlightIds.length) {
+      } else if (requested.has('highlights') && highlightTrayConfirmed) {
         result.sources.highlights = [];
       }
     }

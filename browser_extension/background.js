@@ -107,7 +107,7 @@ async function performScan(manual = false) {
         const counts = Object.entries(data.sources || {})
           .map(([source, items]) => `${source} ${items.length}`).join('、');
         const diagnostic = data.diagnostics?.feedPages
-          ? `（账号媒体接口 ${data.diagnostics.feedItems} 条/${data.diagnostics.feedPages} 页）`
+          ? `（Instagram 页面接口 ${data.diagnostics.feedItems} 条/${data.diagnostics.feedPages} 页）`
           : data.diagnostics?.links !== undefined
             ? `（账号接口失败，页面链接回退 ${data.diagnostics.links} 个：${data.diagnostics.feedError}）`
             : '';
