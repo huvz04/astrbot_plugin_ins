@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Instagram 浏览器桥接</title>
+  <style>
+    body { font: 15px/1.6 system-ui,sans-serif; max-width: 680px; margin: 40px auto; padding: 0 20px; color: #202124; }
+    h1 { font-size: 24px; } label { display: block; font-weight: 650; margin-top: 18px; }
+    input { box-sizing: border-box; width: 100%; padding: 9px 11px; margin-top: 6px; border: 1px solid #bbb; border-radius: 6px; }
+    button { margin: 20px 8px 0 0; padding: 9px 16px; border: 0; border-radius: 6px; background: #1967d2; color: white; cursor: pointer; }
+    button.secondary { background: #5f6368; } #notice { margin-top: 18px; white-space: pre-wrap; }
+    .hint { color: #5f6368; } .error { color: #b3261e; } .success { color: #137333; }
+  </style>
+</head>
+<body>
+  <h1>Instagram 浏览器桥接</h1>
+  <p class="hint">Chrome 需要保持登录 Instagram。扩展只向你的 AstrBot 发送扫描结果，不会发送 Cookie。</p>
+  <label for="baseUrl">AstrBot 地址</label>
+  <input id="baseUrl" placeholder="http://192.168.1.20:6185">
+  <label for="token">桥接密钥</label>
+  <input id="token" type="password" autocomplete="off" placeholder="从 astrbot_plugin_ins 配置中复制">
+  <button id="save">保存并测试</button>
+  <button id="run" class="secondary">立即扫描</button>
+  <div id="notice"></div>
+  <script src="options.js"></script>
+</body>
+</html>

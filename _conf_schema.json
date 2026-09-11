@@ -1,4 +1,6 @@
 {
+  "bridge_enabled": {"description": "启用浏览器桥接模式", "type": "bool", "default": false, "hint": "启用后由已登录 Instagram 的 Chrome 扩展抓取；服务器停止直接请求 Instagram。"},
+  "bridge_token": {"description": "浏览器桥接密钥", "type": "string", "default": "", "hint": "首次加载插件时自动生成。复制到扩展设置；请勿公开。"},
   "subscriptions": {
     "description": "群聊与私聊订阅列表",
     "type": "template_list",

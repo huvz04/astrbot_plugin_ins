@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 def load_plugin():
     modules = {name: types.ModuleType(name) for name in (
         'astrbot', 'astrbot.api', 'astrbot.api.event', 'astrbot.api.message_components',
-        'astrbot.api.star', 'astrbot.core', 'astrbot.core.utils',
+        'astrbot.api.star', 'astrbot.api.web', 'astrbot.core', 'astrbot.core.utils',
         'astrbot.core.utils.astrbot_path', 'ins_test_plugin')}
     modules['ins_test_plugin'].__path__ = [str(Path(__file__).resolve().parents[1])]
 
@@ -46,6 +46,10 @@ def load_plugin():
         setattr(modules['astrbot.api.message_components'], name, Component)
     modules['astrbot.api.star'].Star = Star
     modules['astrbot.api.star'].Context = object
+    modules['astrbot.api.web'].request = types.SimpleNamespace(headers={}, json=AsyncMock())
+    modules['astrbot.api.web'].json_response = lambda value: value
+    modules['astrbot.api.web'].error_response = lambda message, status_code=400: {
+        'error': message, 'status_code': status_code}
     modules['astrbot.core.utils.astrbot_path'].get_astrbot_plugin_data_path = lambda: '.'
     with patch.dict(sys.modules, modules):
         spec = importlib.util.spec_from_file_location(
@@ -75,6 +79,37 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({r[2] for r in self.bot.selected_subscriptions('bot:GroupMessage:123')}, {'third', 'fourth'})
         self.bot.edit_subscriptions('bot:GroupMessage:123', 'third', 'remove')
         self.assertEqual({r[2] for r in self.bot.selected_subscriptions('bot:GroupMessage:123')}, {'fourth'})
+
+    async def test_bridge_routes_and_bearer_auth(self):
+        routes = {call.args[0]: call.args[1:] for call in self.context.register_web_api.call_args_list}
+        self.assertIn('/astrbot_plugin_ins/bridge/config', routes)
+        self.assertIn('/astrbot_plugin_ins/bridge/ingest', routes)
+        self.bot.config.update(bridge_enabled=True, bridge_token='secret')
+        plugin.request.headers = {}
+        denied = await self.bot.bridge_config()
+        self.assertEqual(denied['status_code'], 401)
+        plugin.request.headers = {'Authorization': 'Bearer secret'}
+        response = await self.bot.bridge_config()
+        self.assertEqual(response['accounts'], ['account'])
+        self.assertIn('posts', response['sources'])
+
+    async def test_bridge_ingest_uses_existing_delivery_queue(self):
+        self.bot.config.update(bridge_enabled=True, bridge_token='secret', send_media=False)
+        plugin.request.headers = {'Authorization': 'Bearer secret'}
+        plugin.request.json = AsyncMock(return_value={
+            'account': 'account',
+            'sources': {'posts': [{
+                'id': '2', 'time': 2, 'shortcode': 'NEW2', 'caption': 'new',
+                'media': [{'video': False,
+                           'url': 'https://scontent.cdninstagram.com/new.jpg'}],
+            }]},
+        })
+        with patch.object(plugin.asyncio, 'sleep', new=AsyncMock()):
+            response = await self.bot.bridge_ingest()
+        self.assertTrue(response['ok'])
+        self.assertEqual(response['delivered'], 2)
+        self.assertEqual(self.context.send_message.await_count, 2)
+        self.assertEqual(self.bot.store.pending(self.sub), [])
 
     async def test_manual_origin_fetches_once_and_distributes_to_all_bindings(self):
         self.bot.store.add('other', 'account')
@@ -120,7 +155,8 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.context = types.SimpleNamespace(send_message=AsyncMock(return_value=True))
+        self.context = types.SimpleNamespace(
+            send_message=AsyncMock(return_value=True), register_web_api=Mock())
         with patch.object(plugin, 'get_astrbot_plugin_data_path', return_value=self.temp.name):
             self.bot = plugin.InsPlugin(self.context, {'send_media': True})
         self.bot.store.add('group', 'account')

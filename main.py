@@ -3,7 +3,9 @@ import asyncio
 import contextlib
 import hashlib
 import copy
+import hmac
 import random
+import secrets
 import time
 from pathlib import Path
 
@@ -11,9 +13,11 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.message_components import Image, Plain, Video
 from astrbot.api.star import Context, Star
+from astrbot.api.web import error_response, json_response, request
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 from .core import Store, username
+from .bridge import validate_payload
 from .instagram import Instagram, error_message
 
 HELP = '''Instagram 订阅推送（修改和手动检查需 AstrBot 管理员权限）
@@ -22,7 +26,7 @@ HELP = '''Instagram 订阅推送（修改和手动检查需 AstrBot 管理员权
 /ins remove 用户名 — 取消当前会话的订阅
 /ins list — 查看当前会话订阅和运行状态
 /ins check — 立即检查当前会话订阅（遵守失败退避）
-默认获取帖子、Reels、Story、精选；登录信息在插件配置中设置。'''
+默认获取帖子、Reels、Story、精选；可使用服务器直连或已登录 Chrome 浏览器桥接。'''
 
 
 class InsPlugin(Star):
@@ -42,6 +46,14 @@ class InsPlugin(Star):
         self.failures = {}
         self.manual_task = None
         self.progress = {}
+        self.bridge_last_seen = 0
+        if not str(self.config.get('bridge_token', '')).strip():
+            self.config['bridge_token'] = secrets.token_urlsafe(32)
+            self.save_config()
+        self.context.register_web_api('/astrbot_plugin_ins/bridge/config', self.bridge_config,
+                                      ['GET'], 'Instagram browser bridge config')
+        self.context.register_web_api('/astrbot_plugin_ins/bridge/ingest', self.bridge_ingest,
+                                      ['POST'], 'Instagram browser bridge ingest')
 
     async def initialize(self):
         self.task = asyncio.create_task(self.scheduler())
@@ -148,7 +160,7 @@ class InsPlugin(Star):
         await asyncio.sleep(5)
         while True:
             try:
-                if self.config.get('enabled', True):
+                if self.config.get('enabled', True) and not self.config.get('bridge_enabled', False):
                     await self.check()
             except Exception as exc:
                 logger.warning('Ins 调度异常：%s', type(exc).__name__)
@@ -156,6 +168,8 @@ class InsPlugin(Star):
             await asyncio.sleep(interval + random.uniform(0, interval * 0.1))
 
     async def check(self, origin=None):
+        if self.config.get('bridge_enabled', False):
+            return
         async with self.lock:
             all_subscriptions = self.selected_subscriptions()
             requested = {r[2] for r in all_subscriptions if origin is None or r[1] == origin}
@@ -224,6 +238,70 @@ class InsPlugin(Star):
                 if account != accounts[-1]:
                     await asyncio.sleep(3)
             self.clean_cache()
+
+    def bridge_authorized(self):
+        expected = str(self.config.get('bridge_token', '')).strip()
+        supplied = request.headers.get('Authorization', '')
+        return bool(expected) and hmac.compare_digest(supplied, f'Bearer {expected}')
+
+    async def bridge_config(self):
+        if not self.config.get('bridge_enabled', False):
+            return error_response('浏览器桥接未启用', status_code=503)
+        if not self.bridge_authorized():
+            return error_response('未授权', status_code=401)
+        try:
+            accounts = sorted({row[2] for row in self.selected_subscriptions()})
+        except Exception as exc:
+            return error_response(str(exc), status_code=400)
+        self.bridge_last_seen = time.time()
+        return json_response({
+            'enabled': bool(self.config.get('enabled', True)),
+            'accounts': accounts,
+            'interval_seconds': max(300, int(self.config.get('interval_seconds', 900))),
+            'scan_limit': max(1, min(30, int(self.config.get('scan_limit', 30)))),
+            'sources': [name for name in ('posts', 'reels', 'stories', 'highlights')
+                        if self.config.get('enable_' + name, True)],
+        })
+
+    async def bridge_ingest(self):
+        if not self.config.get('bridge_enabled', False):
+            return error_response('浏览器桥接未启用', status_code=503)
+        if not self.bridge_authorized():
+            return error_response('未授权', status_code=401)
+        try:
+            account, results = validate_payload(await request.json(default={}))
+            async with self.lock:
+                subscriptions = [row for row in self.selected_subscriptions() if row[2] == account]
+                if not subscriptions:
+                    return error_response('该账号未被订阅', status_code=404)
+                delivered = 0
+                for sub, target, _ in subscriptions:
+                    for source, items in results.items():
+                        self.store.ingest(sub, source, items)
+                    for key, item, position in self.store.pending(
+                            sub, max(1, min(100, int(self.config.get('push_limit', 10)))),
+                            include_deferred=not self.config.get('send_media', True)):
+                        try:
+                            await self.deliver(sub, target, account, key, item, position)
+                            delivered += 1
+                        except Exception as exc:
+                            self.store.defer(sub, key)
+                            logger.warning('Ins 浏览器桥接 @%s -> %s 发送失败（%s）',
+                                           account, target, type(exc).__name__)
+                stamp = time.strftime('%m-%d %H:%M')
+                for _, target, _ in subscriptions:
+                    self.status[(target, account)] = (
+                        f'{stamp}，浏览器桥接获取 {sum(len(v) for v in results.values())} 条，'
+                        f'推送 {delivered} 条')
+                self.bridge_last_seen = time.time()
+                logger.info('Ins 浏览器桥接 @%s：获取 %s，推送 %d 条', account,
+                            {k: len(v) for k, v in results.items()}, delivered)
+            return json_response({'ok': True, 'delivered': delivered})
+        except ValueError as exc:
+            return error_response(str(exc), status_code=400)
+        except Exception as exc:
+            logger.warning('Ins 浏览器桥接接收失败（%s）', type(exc).__name__)
+            return error_response('处理失败', status_code=500)
 
     async def send(self, target, component):
         result = await asyncio.wait_for(
@@ -324,6 +402,9 @@ class InsPlugin(Star):
             retry = self.retry.get(account, 0) - time.time()
             if retry > 0:
                 lines.append(f'退避剩余 {int(retry / 60) + 1} 分钟')
+        if self.config.get('bridge_enabled', False):
+            age = time.time() - self.bridge_last_seen if self.bridge_last_seen else None
+            lines.append('浏览器桥接：' + (f'{int(age)} 秒前连接' if age is not None else '尚未连接'))
         return '\n'.join(lines)
 
     @ins.command('list')
@@ -335,6 +416,9 @@ class InsPlugin(Star):
     @ins.command('check')
     async def check_command(self, event: AstrMessageEvent):
         event.stop_event()
+        if self.config.get('bridge_enabled', False):
+            yield event.plain_result('当前使用浏览器桥接；扩展会按计划扫描。用 /ins list 查看连接和抓取状态。')
+            return
         if self.lock.locked():
             yield event.plain_result('已有检查正在进行，请稍后用 /ins list 查看结果。')
             return

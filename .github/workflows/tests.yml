@@ -15,3 +15,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
+      - run: node --check browser_extension/background.js
+      - run: node --check browser_extension/content.js
+      - run: node --check browser_extension/page.js
+      - run: node --check browser_extension/options.js

@@ -1,7 +1,8 @@
 # Instagram 订阅推送 · astrbot_plugin_ins
 
 订阅 Instagram 账号，将新增内容自动发到执行订阅命令的 AstrBot 群聊或私聊。
-基于 Instaloader 4.15 系列，Python 3.10+、AstrBot 4.16+。
+基于 Instaloader 4.15 系列，Python 3.10+、AstrBot 4.16+。如果 AstrBot 所在服务器持续收到
+Instagram 429，可改用随发布包提供的 Chrome 浏览器桥接，让已登录的浏览器负责读取内容。
 
 ## 支持范围
 
@@ -35,6 +36,30 @@ https://github.com/huvz04/astrbot_plugin_ins
 4. 重启或重载插件，在插件配置面板设置登录会话和代理。
 
 源码与更新：[huvz04/astrbot_plugin_ins](https://github.com/huvz04/astrbot_plugin_ins)。
+
+## 推荐：使用已登录 Chrome 浏览器桥接
+
+浏览器桥接适合服务器直接访问 Instagram 持续收到 429、但电脑 Chrome 已能正常浏览 Instagram 的情况。
+Chrome 负责读取页面中的帖子、Reels、Story 和精选数据；AstrBot 仍负责订阅去重、下载媒体和群聊推送。
+
+1. 在插件配置中开启 **启用浏览器桥接模式**，保存并重载插件。复制自动生成的 **浏览器桥接密钥**。
+2. 从 GitHub Releases 下载 `astrbot_plugin_ins-browser-bridge-0.3.0.zip` 并解压。
+3. 打开 Chrome 的 `chrome://extensions`，开启右上角「开发者模式」，选择「加载已解压的扩展程序」，
+   选中解压后的 `browser_extension` 文件夹。
+4. 扩展会自动打开设置页。填写浏览器能够访问的 AstrBot 地址，例如
+   `http://192.168.1.20:6185`，再粘贴桥接密钥，点击「保存并测试」。
+5. 确认同一个 Chrome 已登录 `https://www.instagram.com/`，点击「立即扫描」。在 AstrBot 会话中用
+   `/ins list` 查看浏览器连接和抓取时间；后续扩展会按照插件配置的检查间隔自动运行。
+
+AstrBot 地址必须能从运行 Chrome 的电脑访问；如果 AstrBot 在 Docker 或远程服务器中，请开放相应端口，
+并使用实际局域网地址或 HTTPS 域名，不能填写只在容器内部有效的地址。Chrome 必须保持运行且 Instagram
+登录未失效。首次成功扫描和直连模式一样，只建立基线，不推送旧内容。
+
+扩展的密钥只保存在 Chrome 扩展本地存储中。浏览器 Cookie 留在 Instagram 页面，扩展不会读取或发送
+Cookie；传给 AstrBot 的只有订阅账号对应的内容信息和 Instagram CDN 媒体地址。桥接接口会校验密钥，
+也会拒绝非 Instagram 的内容链接和不受支持的媒体域名。不要把桥接密钥公开或提交到仓库。
+
+关闭浏览器桥接后，插件恢复服务器直连模式，并继续使用下面的 Cookie、会话文件和代理设置。
 
 ## 登录配置（直接在 AstrBot 面板填写）
 
@@ -106,7 +131,7 @@ Story、精选和私密内容仍取决于当前登录账号的访问权限；Coo
 - 每个账号、每个会话每轮最多处理 10 条，后续轮次继续处理积压。
 - `/ins remove username` 只取消当前会话订阅，并移除该会话对应的去重和待发记录。
 - `/ins list` 查看最近检查情况、失败原因与退避时间。运行状态在重载后重新建立。
-- `/ins check` 手动触发当前会话的检查；已有检查或处于失败退避时不会强行重复请求。
+- `/ins check` 手动触发当前会话的服务器直连检查；浏览器桥接模式请在扩展设置页点击「立即扫描」。
 - `enabled=false` 暂停后台检查，手动检查仍可使用。
 
 ## 请求状态与检查流程

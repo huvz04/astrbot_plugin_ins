@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "AstrBot Instagram 浏览器桥接",
+  "version": "0.3.0",
+  "description": "使用当前 Chrome 中已登录的 Instagram 会话，为 astrbot_plugin_ins 扫描新增内容。",
+  "permissions": ["alarms", "storage", "tabs"],
+  "host_permissions": ["https://www.instagram.com/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {"service_worker": "background.js"},
+  "options_page": "options.html",
+  "action": {"default_title": "Instagram 浏览器桥接"},
+  "content_scripts": [
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["page.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
