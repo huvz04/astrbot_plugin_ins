@@ -83,6 +83,9 @@ class InstagramTests(unittest.TestCase):
             adapter.browser_profile('account', Exception())
         self.assertIn('429', error_message(caught.exception))
         self.assertNotIn('account', str(caught.exception))
+        with self.assertRaises(Exception):
+            adapter.browser_profile('second', instaloader.AbortDownloadException('429 original'))
+        get.assert_called_once()
 
     def test_config_cookie_login_overrides_file_and_applies_proxy(self):
         adapter = Instagram(dict(login_username='user', login_cookie='sessionid=a; csrftoken=b',

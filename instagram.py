@@ -94,6 +94,7 @@ class Instagram:
         self.loader = None
         self.deadline = float('inf')
         self.report = lambda message: None
+        self.browser_fallback_retry = 0
 
     def check_deadline(self):
         if time.monotonic() >= self.deadline:
@@ -102,6 +103,9 @@ class Instagram:
     def browser_profile(self, account, original):
         """Retry profile resolution with a browser TLS fingerprint."""
         self.check_deadline()
+        if time.monotonic() < self.browser_fallback_retry:
+            self.report('Chrome TLS 指纹端点已确认受限，本轮跳过重复请求')
+            raise original
         self.report('标准资料接口失败，使用 Chrome TLS 指纹重试')
         loader = self.connect()
         proxy = str(self.config.get('proxy', '')).strip() or None
@@ -118,6 +122,8 @@ class Instagram:
                     'X-Requested-With': 'XMLHttpRequest',
                 })
             if response.status_code != 200:
+                if response.status_code in (401, 403, 429):
+                    self.browser_fallback_retry = time.monotonic() + 1800
                 raise instaloader.AbortDownloadException(
                     f'HTTP {response.status_code} from browser TLS fallback')
             data = response.json().get('data') or {}
