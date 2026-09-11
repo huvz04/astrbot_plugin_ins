@@ -107,7 +107,18 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(plugin.asyncio, 'sleep', new=AsyncMock()):
             response = await self.bot.bridge_ingest()
         self.assertTrue(response['ok'])
-        self.assertEqual(response['delivered'], 2)
+        self.assertEqual(response['delivered'], 1)
+        plugin.request.json = AsyncMock(return_value={
+            'account': 'account',
+            'sources': {'posts': [{
+                'id': '3', 'time': 3, 'shortcode': 'NEW3', 'caption': 'newer',
+                'media': [{'video': False,
+                           'url': 'https://scontent.cdninstagram.com/newer.jpg'}],
+            }]},
+        })
+        with patch.object(plugin.asyncio, 'sleep', new=AsyncMock()):
+            second = await self.bot.bridge_ingest()
+        self.assertEqual(second['delivered'], 1)
         self.assertEqual(self.context.send_message.await_count, 2)
         self.assertEqual(self.bot.store.pending(self.sub), [])
 

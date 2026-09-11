@@ -103,14 +103,19 @@
   async function fetchPost(relay, environment, query, shortcode) {
     const response = await relay.fetchQuery(environment, query.POST_QUERY, {
       child_comment_count: 3,
-      fetch_comment_count: 0,
+      fetch_comment_count: 40,
       has_threaded_comments: true,
-      parent_comment_count: 0,
+      parent_comment_count: 24,
       shortcode,
     }).toPromise();
     const data = response?.data || response;
-    return first(data?.xdt_shortcode_media, data?.shortcode_media,
+    const media = first(data?.xdt_shortcode_media, data?.shortcode_media,
       data?.data?.xdt_shortcode_media, data?.data?.shortcode_media);
+    return first(
+      media?.__fragments?.PolarisPostActionLoadPostQueryInlineFragment,
+      media?.__fragments?.PolarisPostActionLoadPostQueryInlineFragmentWithoutRelatedProfiles,
+      media,
+    );
   }
 
   async function apiGet(instapi, path, query) {
@@ -122,7 +127,7 @@
     const account = String(payload.account || '').toLowerCase();
     const requested = new Set(payload.sources || []);
     const limit = Math.max(1, Math.min(30, Number(payload.scanLimit) || 30));
-    const result = {account, sources: {}};
+    const result = {account, sources: {}, diagnostics: {}};
     const highlightIds = [];
     if (requested.has('highlights')) {
       for (const anchor of document.querySelectorAll('a[href*="/stories/highlights/"]')) {
@@ -141,8 +146,11 @@
       const counts = {posts: 0, reels: 0};
       const attempts = {posts: 0, reels: 0};
       const successes = {posts: 0, reels: 0};
+      const normalized = {posts: 0, reels: 0};
       const found = {posts: [], reels: []};
-      for (const link of await loadShortcodeLinks(limit)) {
+      const links = await loadShortcodeLinks(limit);
+      result.diagnostics.links = links.length;
+      for (const link of links) {
         const source = link.kind === 'reel' ? 'reels' : 'posts';
         if (!requested.has(source) || counts[source] >= limit) continue;
         attempts[source] += 1;
@@ -152,12 +160,19 @@
           successes[source] += 1;
           ownerId ||= String(first(node?.owner?.id, node?.owner?.pk, ''));
           const item = normalizePost(node, link.kind, account);
+          if (item) normalized[source] += 1;
           const ownerName = String(first(node?.owner?.username, account)).toLowerCase();
           if (item && ownerName === account) { found[source].push(item); counts[source] += 1; }
         } catch (_) {}
       }
       for (const source of ['posts', 'reels']) {
-        if (requested.has(source) && (!attempts[source] || successes[source])) {
+        result.diagnostics[source] = {
+          attempts: attempts[source], responses: successes[source], parsed: normalized[source],
+        };
+        if (attempts[source] && !normalized[source]) {
+          throw new Error(`${source} 发现 ${attempts[source]} 个链接，但 Instagram 返回结构无法解析`);
+        }
+        if (requested.has(source) && (!attempts[source] || normalized[source])) {
           result.sources[source] = found[source];
         }
       }
@@ -181,14 +196,23 @@
             media_id: '', reel_ids: reelIds.join(','),
           });
           const reels = first(feed?.reels, feed?.data?.reels, {});
+          const reelsMedia = first(feed?.reels_media, feed?.data?.reels_media);
           if (requested.has('stories') && /^\d+$/.test(ownerId)) result.sources.stories = [];
           if (requested.has('highlights')) result.sources.highlights = [];
-          for (const [key, reel] of Object.entries(reels || {})) {
-            const isHighlight = key.startsWith('highlight:') || String(reel?.id || '').startsWith('highlight:');
+          const entries = Array.isArray(reelsMedia)
+            ? reelsMedia.map((reel, index) => [String(first(reel?.id, reel?.reel_id, reelIds[index], '')), reel])
+            : Object.entries(reels || {});
+          result.diagnostics.storyReels = entries.length;
+          for (const [key, reelMedia] of entries) {
+            const requestedId = reelIds.find(id => id === key || id.endsWith(`:${key}`)) || '';
+            const reel = first(reels?.[key], reels?.[requestedId], reelMedia);
+            const isHighlight = requestedId.startsWith('highlight:') || key.startsWith('highlight:') ||
+              String(reel?.id || '').startsWith('highlight:') ||
+              String(reel?.reel_type || '').includes('highlight');
             const source = isHighlight ? 'highlights' : 'stories';
             if (!requested.has(source)) continue;
             const title = isHighlight ? String(first(reel?.title, reel?.highlight_title, '精选')) : '';
-            result.sources[source].push(...(reel?.items || []).map(item =>
+            result.sources[source].push(...(first(reelMedia?.items, reel?.items, [])).map(item =>
               normalizeStory(item, account, title)).filter(Boolean));
           }
         } catch (_) {

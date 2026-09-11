@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AstrBot Instagram 浏览器桥接",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "使用当前 Chrome 中已登录的 Instagram 会话，为 astrbot_plugin_ins 扫描新增内容。",
   "permissions": ["alarms", "storage", "tabs"],
   "host_permissions": ["https://www.instagram.com/*"],

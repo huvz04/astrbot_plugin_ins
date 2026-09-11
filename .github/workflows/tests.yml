@@ -19,3 +19,4 @@ jobs:
       - run: node --check browser_extension/content.js
       - run: node --check browser_extension/page.js
       - run: node --check browser_extension/options.js
+      - run: node tests/test_extension_bridge.mjs

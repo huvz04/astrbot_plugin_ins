@@ -90,6 +90,7 @@ async function performScan(manual = false) {
     tab = await chrome.tabs.create({url: 'https://www.instagram.com/', active: false});
     let scanned = 0;
     const failures = [];
+    const summaries = [];
     for (const account of config.accounts) {
       try {
         await chrome.tabs.update(tab.id, {
@@ -103,13 +104,17 @@ async function performScan(manual = false) {
         });
         await api('ingest', {method: 'POST', body: JSON.stringify(data)});
         scanned += 1;
+        const counts = Object.entries(data.sources || {})
+          .map(([source, items]) => `${source} ${items.length}`).join('、');
+        summaries.push(`@${account}：${counts || '没有可确认的内容类型'}`);
         await setStatus({message: `已扫描 ${scanned}/${config.accounts.length}：@${account}`});
       } catch (error) {
         failures.push(`@${account}：${String(error.message || error)}`);
       }
     }
     await setStatus({running: false, finishedAt: Date.now(), error: failures.join('\n'),
-                     message: `扫描完成，成功 ${scanned}/${config.accounts.length} 个账号`});
+                     message: [`扫描完成，成功 ${scanned}/${config.accounts.length} 个账号`,
+                               ...summaries].join('\n')});
   } catch (error) {
     await setStatus({running: false, finishedAt: Date.now(), error: String(error.message || error)});
     throw error;

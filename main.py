@@ -277,6 +277,16 @@ class InsPlugin(Star):
                 subscriptions = [row for row in self.selected_subscriptions() if row[2] == account]
                 if not subscriptions:
                     return error_response('该账号未被订阅', status_code=404)
+                migrated = self.store.db.execute(
+                    "SELECT 1 FROM settings WHERE key='bridge_payload_v2'").fetchone()
+                if not migrated:
+                    # v0.3.0/0.3.1 could save an empty baseline after reading the wrong
+                    # Instagram response layer. Rebaseline once without deleting queued items.
+                    with self.store.db:
+                        self.store.db.execute('DELETE FROM streams')
+                        self.store.db.execute(
+                            "INSERT OR REPLACE INTO settings VALUES ('bridge_payload_v2','1')")
+                    logger.info('Ins 浏览器桥接数据结构已升级，重新建立内容基线')
                 delivered = 0
                 for sub, target, _ in subscriptions:
                     for source, items in results.items():
@@ -292,9 +302,10 @@ class InsPlugin(Star):
                             logger.warning('Ins 浏览器桥接 @%s -> %s 发送失败（%s）',
                                            account, target, type(exc).__name__)
                 stamp = time.strftime('%m-%d %H:%M')
+                fetched = '、'.join(f'{source} {len(items)}' for source, items in results.items())
                 for _, target, _ in subscriptions:
                     self.status[(target, account)] = (
-                        f'{stamp}，浏览器桥接获取 {sum(len(v) for v in results.values())} 条，'
+                        f'{stamp}，浏览器桥接获取 {fetched or "0 条"}，'
                         f'推送 {delivered} 条')
                 self.bridge_last_seen = time.time()
                 logger.info('Ins 浏览器桥接 @%s：获取 %s，推送 %d 条', account,
