@@ -6,6 +6,8 @@
 4. 在自动打开的设置页填写 Chrome 能访问的 AstrBot 地址、AstrBot API Key 和插件桥接密钥，点击「保存并测试」。
 5. 确认 Chrome 已登录 Instagram，点击「立即扫描」。Chrome 保持运行时，扩展会按照插件设置的间隔继续扫描。
 
+手动点击「立即扫描」时，扩展会暂时打开前台 Instagram 标签页，让页面完成加载；扫描结束后会自动关闭。定时扫描仍在后台进行。
+
 AstrBot 地址示例：`http://192.168.1.20:6185`。远程部署或 Docker 部署请填写 Chrome 所在电脑实际能访问的地址。
 
 扩展不会读取或发送 Instagram Cookie。两个密钥保存在 Chrome 扩展本地存储中，请勿分享。

@@ -97,7 +97,6 @@ context.fetch = async (url, init) => {
   assert.match(url, /^https:\/\/www\.instagram\.com\/api\/v1\/feed\/user\/example\/username\//);
   assert.equal(init.headers['x-ig-app-id'], 'module-app-id');
   assert.equal(init.headers['x-ig-www-claim'], 'module-claim');
-  assert.equal(init.headers['x-csrftoken'], 'test-token');
   return {ok: true, status: 200, text: async () => '<!doctype html><title>Instagram</title>'};
 };
 await listeners[0]({

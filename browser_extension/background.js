@@ -87,16 +87,17 @@ async function performScan(manual = false) {
       await setStatus({running: false, finishedAt: Date.now(), message: 'AstrBot 中暂无已启用订阅'});
       return;
     }
-    tab = await chrome.tabs.create({url: 'https://www.instagram.com/', active: false});
+    tab = await chrome.tabs.create({url: 'https://www.instagram.com/', active: manual});
     let scanned = 0;
     const failures = [];
     const summaries = [];
     for (const account of config.accounts) {
       try {
         await chrome.tabs.update(tab.id, {
-          url: `https://www.instagram.com/${encodeURIComponent(account)}/`, active: false,
+          url: `https://www.instagram.com/${encodeURIComponent(account)}/`, active: manual,
         });
         await waitForLoad(tab.id);
+        await new Promise(resolve => setTimeout(resolve, 2500));
         const data = await sendScan(tab.id, {
           account,
           sources: config.sources || [],

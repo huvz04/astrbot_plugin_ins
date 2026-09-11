@@ -78,9 +78,10 @@
     const collected = new Map();
     const collect = () => shortcodeLinks(limit).forEach(link =>
       collected.set(`${link.kind}:${link.shortcode}`, link));
+    await sleep(2000);
     collect();
     let unchanged = 0;
-    for (let round = 0; round < 8 && collected.size < limit * 2 && unchanged < 2; round++) {
+    for (let round = 0; round < 12 && collected.size < limit * 2 && unchanged < 5; round++) {
       const before = collected.size;
       window.scrollTo(0, document.documentElement.scrollHeight);
       await sleep(800);
@@ -123,19 +124,22 @@
     return unwrap(response);
   }
 
-  function instagramHeaders() {
-    let moduleAppId = '';
-    let moduleClaim = '';
-    try { moduleAppId = window.require?.('PolarisConfig')?.getIGAppID?.() || ''; } catch (_) {}
-    try { moduleClaim = window.require?.('PolarisWWWClaim')?.getWWWClaim?.() || ''; } catch (_) {}
-    const appId = moduleAppId || sessionStorage.getItem('__ig_app_id') || '936619743392459';
-    const wwwClaim = moduleClaim || sessionStorage.getItem('__ig_www_claim') ||
-      sessionStorage.getItem('www-claim-v2') || '0';
-    const csrf = String(document.cookie || '').match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1] || '';
+  async function instagramHeaders(timeoutMs = 12000) {
+    const started = Date.now();
+    let appId = '';
+    let wwwClaim = '';
+    while (Date.now() - started < timeoutMs) {
+      try { appId = window.require?.('PolarisConfig')?.getIGAppID?.() || ''; } catch (_) {}
+      try { wwwClaim = window.require?.('PolarisWWWClaim')?.getWWWClaim?.() || ''; } catch (_) {}
+      appId ||= sessionStorage.getItem('__ig_app_id') || '';
+      wwwClaim ||= sessionStorage.getItem('__ig_www_claim') ||
+        sessionStorage.getItem('www-claim-v2') || '';
+      if (appId && wwwClaim) break;
+      await sleep(250);
+    }
     return {
-      'x-ig-app-id': appId, 'x-ig-www-claim': wwwClaim,
-      'x-requested-with': 'XMLHttpRequest', 'x-asbd-id': '129477',
-      ...(csrf ? {'x-csrftoken': csrf} : {}),
+      'x-ig-app-id': appId || '936619743392459',
+      'x-ig-www-claim': wwwClaim || '0',
     };
   }
 
@@ -144,7 +148,7 @@
       `https://www.instagram.com/api/v1/feed/user/${encodeURIComponent(account)}/username/`);
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
     const response = await fetch(url.href, {
-      headers: instagramHeaders(), credentials: 'include', redirect: 'follow',
+      headers: await instagramHeaders(), credentials: 'include', redirect: 'follow',
     });
     let text = '';
     try { text = await response.text(); } catch (_) {}
@@ -167,7 +171,8 @@
       try {
         const body = await apiGet(instapi, path, query);
         if (Array.isArray(body?.items)) return {body, method: 'instagram-module'};
-        errors.push('页面模块返回结构无法解析');
+        const keys = body && typeof body === 'object' ? Object.keys(body).slice(0, 8).join(',') : '';
+        errors.push(`页面模块返回结构无法解析${keys ? `（字段：${keys}）` : ''}`);
       } catch (error) {
         errors.push(`页面模块：${String(error.message || error)}`);
       }
@@ -268,6 +273,7 @@
     const result = {account, sources: {}, diagnostics: {}};
     const highlightIds = [];
     const highlightTitles = new Map();
+    await sleep(2000);
     if (requested.has('highlights')) {
       for (const anchor of document.querySelectorAll('a[href*="/stories/highlights/"]')) {
         const match = anchor.href.match(/\/stories\/highlights\/(\d+)/);
@@ -379,7 +385,11 @@
         result.sources.highlights = [];
       }
     }
-    if (!Object.keys(result.sources).length) throw new Error('Instagram 没有返回任何可确认的内容类型');
+    if (!Object.keys(result.sources).length) {
+      const details = [result.diagnostics.feedError, result.diagnostics.highlightTrayError]
+        .filter(Boolean).join('；');
+      throw new Error(`Instagram 没有返回任何可确认的内容类型${details ? `：${details}` : ''}`);
+    }
     return result;
   }
 
