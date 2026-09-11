@@ -278,14 +278,14 @@ class InsPlugin(Star):
                 if not subscriptions:
                     return error_response('该账号未被订阅', status_code=404)
                 migrated = self.store.db.execute(
-                    "SELECT 1 FROM settings WHERE key='bridge_payload_v2'").fetchone()
+                    "SELECT 1 FROM settings WHERE key='bridge_payload_v3'").fetchone()
                 if not migrated:
-                    # v0.3.0/0.3.1 could save an empty baseline after reading the wrong
-                    # Instagram response layer. Rebaseline once without deleting queued items.
+                    # Earlier bridge builds could save an empty baseline after relying on
+                    # profile-page links. Rebaseline once without deleting queued items.
                     with self.store.db:
                         self.store.db.execute('DELETE FROM streams')
                         self.store.db.execute(
-                            "INSERT OR REPLACE INTO settings VALUES ('bridge_payload_v2','1')")
+                            "INSERT OR REPLACE INTO settings VALUES ('bridge_payload_v3','1')")
                     logger.info('Ins 浏览器桥接数据结构已升级，重新建立内容基线')
                 delivered = 0
                 for sub, target, _ in subscriptions:

@@ -45,7 +45,7 @@ Chrome 负责读取页面中的帖子、Reels、Story 和精选数据；AstrBot 
 1. 在插件配置中开启 **启用浏览器桥接模式**，保存并重载插件。复制自动生成的 **浏览器桥接密钥**。
 2. 在 AstrBot「设置 → API Keys」新建 API Key，并勾选 `plugin` 权限。这个 Key 负责通过 AstrBot
    自身的接口认证，和上一步的插件桥接密钥不是同一个值。
-3. 从 GitHub Releases 下载 `astrbot_plugin_ins-browser-bridge-0.3.2.zip` 并解压。
+3. 从 GitHub Releases 下载 `astrbot_plugin_ins-browser-bridge-0.3.3.zip` 并解压。
 4. 打开 Chrome 的 `chrome://extensions`，开启右上角「开发者模式」，选择「加载已解压的扩展程序」，
    选中解压后的 `browser_extension` 文件夹。
 5. 扩展会自动打开设置页。填写浏览器能够访问的 AstrBot 地址，例如 `http://192.168.1.20:6185`，

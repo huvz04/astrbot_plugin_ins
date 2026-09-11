@@ -5,10 +5,15 @@ import vm from 'node:vm';
 const listeners = [];
 const responses = [];
 const postNode = {
-  id: '1001', shortcode: 'POST1', taken_at_timestamp: 1700000000,
-  owner: {id: '2001', username: 'example'},
-  display_url: 'https://scontent.cdninstagram.com/post.jpg',
-  edge_media_to_caption: {edges: [{node: {text: 'caption'}}]},
+  pk: '1001', code: 'POST1', taken_at: 1700000000, product_type: 'feed',
+  user: {pk: '2001', username: 'example'},
+  image_versions2: {candidates: [{url: 'https://scontent.cdninstagram.com/post.jpg'}]},
+  caption: {text: 'caption'},
+};
+const reelNode = {
+  pk: '1002', code: 'REEL1', taken_at: 1700000002, product_type: 'clips',
+  user: {pk: '2001', username: 'example'},
+  video_versions: [{url: 'https://scontent.cdninstagram.com/reel.mp4'}],
 };
 const storyItem = id => ({
   pk: id, taken_at: 1700000001,
@@ -18,7 +23,15 @@ const storyItem = id => ({
 const context = {
   console,
   setTimeout: callback => { callback(); return 1; },
+  URLSearchParams,
   location: {origin: 'https://www.instagram.com'},
+  sessionStorage: {getItem() { return null; }},
+  fetch: async url => {
+    assert.match(String(url), /\/api\/v1\/feed\/user\/example\/username\/\?count=12/);
+    return {ok: true, status: 200, json: async () => ({
+      items: [postNode, reelNode], more_available: false,
+    })};
+  },
   document: {
     documentElement: {scrollHeight: 1000},
     querySelectorAll(selector) {
@@ -56,13 +69,31 @@ assert.equal(listeners.length, 1);
 await listeners[0]({
   source: context.window,
   data: {type: 'ASTRBOT_INS_PAGE_REQUEST', id: 'request-1', payload: {
-    account: 'example', sources: ['posts', 'stories', 'highlights'], scanLimit: 1,
+    account: 'example', sources: ['posts', 'reels', 'stories', 'highlights'], scanLimit: 1,
   }},
 });
 
 const response = responses.find(item => item.type === 'ASTRBOT_INS_PAGE_RESPONSE');
 assert.equal(response.ok, true);
 assert.equal(response.data.sources.posts[0].id, '1001');
+assert.equal(response.data.sources.reels[0].id, '1002');
 assert.equal(response.data.sources.stories[0].id, '4001');
 assert.equal(response.data.sources.highlights[0].id, '4002');
 assert.equal(response.data.diagnostics.posts.parsed, 1);
+assert.equal(response.data.diagnostics.reels.parsed, 1);
+assert.equal(response.data.diagnostics.feedItems, 2);
+
+context.fetch = async () => ({
+  ok: false, status: 429, json: async () => ({message: 'rate limited'}),
+});
+await listeners[0]({
+  source: context.window,
+  data: {type: 'ASTRBOT_INS_PAGE_REQUEST', id: 'request-2', payload: {
+    account: 'example', sources: ['posts'], scanLimit: 1,
+  }},
+});
+const fallback = responses.find(item => item.id === 'request-2');
+assert.equal(fallback.ok, true);
+assert.equal(fallback.data.sources.posts[0].id, '1001');
+assert.equal(fallback.data.diagnostics.posts.method, 'page-links');
+assert.equal(fallback.data.diagnostics.feedError, 'rate limited');

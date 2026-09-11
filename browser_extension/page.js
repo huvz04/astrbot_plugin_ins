@@ -123,6 +123,99 @@
     return unwrap(response);
   }
 
+  function instagramHeaders() {
+    const appId = sessionStorage.getItem('__ig_app_id') || '936619743392459';
+    const wwwClaim = sessionStorage.getItem('__ig_www_claim') ||
+      sessionStorage.getItem('www-claim-v2') || '0';
+    return {'x-ig-app-id': appId, 'x-ig-www-claim': wwwClaim};
+  }
+
+  async function fetchAccountFeed(account, requested, limit) {
+    const found = {posts: [], reels: []};
+    const candidates = {posts: 0, reels: 0};
+    const seen = new Set();
+    let maxId = '';
+    let pages = 0;
+    let feedItems = 0;
+    let ownerId = '';
+    for (; pages < 5; pages++) {
+      const query = new URLSearchParams({count: '12'});
+      if (maxId) query.set('max_id', maxId);
+      const response = await fetch(
+        `/api/v1/feed/user/${encodeURIComponent(account)}/username/?${query}`,
+        {headers: instagramHeaders(), credentials: 'same-origin'},
+      );
+      let body;
+      try { body = await response.json(); } catch (_) {
+        throw new Error(`Instagram 账号媒体接口返回 HTTP ${response.status}`);
+      }
+      if (!response.ok) {
+        throw new Error(String(first(body?.message, body?.error, `HTTP ${response.status}`)));
+      }
+      if (!Array.isArray(body?.items)) throw new Error('Instagram 账号媒体接口返回结构无法解析');
+      feedItems += body.items.length;
+      for (const node of body.items) {
+        ownerId ||= String(first(node?.user?.pk, node?.user?.id,
+          node?.owner?.pk, node?.owner?.id, ''));
+        const source = node?.product_type === 'clips' ? 'reels' : 'posts';
+        if (!requested.has(source) || found[source].length >= limit) continue;
+        candidates[source] += 1;
+        const ownerName = String(first(node?.user?.username, node?.owner?.username, account)).toLowerCase();
+        const item = normalizePost(node, source === 'reels' ? 'reel' : 'p', account);
+        if (!item || ownerName !== account || seen.has(`${source}:${item.id}`)) continue;
+        seen.add(`${source}:${item.id}`);
+        found[source].push(item);
+      }
+      const complete = ['posts', 'reels'].every(source =>
+        !requested.has(source) || found[source].length >= limit);
+      maxId = String(first(body.next_max_id, ''));
+      if (complete || !body.more_available || !maxId || !body.items.length) {
+        pages += 1;
+        break;
+      }
+    }
+    for (const source of ['posts', 'reels']) {
+      if (requested.has(source) && candidates[source] && !found[source].length) {
+        throw new Error(`${source} 账号接口返回 ${candidates[source]} 条，但内容结构无法解析`);
+      }
+    }
+    return {found, candidates, pages, feedItems, ownerId};
+  }
+
+  async function fetchLinkedPosts(account, requested, limit) {
+    const relay = await requireModule('CometRelay');
+    const environment = await requireModule('PolarisRelayEnvironment');
+    const query = await requireModule('PolarisPostActionLoadPostQuery');
+    const counts = {posts: 0, reels: 0};
+    const attempts = {posts: 0, reels: 0};
+    const successes = {posts: 0, reels: 0};
+    const normalized = {posts: 0, reels: 0};
+    const found = {posts: [], reels: []};
+    let ownerId = '';
+    const links = await loadShortcodeLinks(limit);
+    for (const link of links) {
+      const source = link.kind === 'reel' ? 'reels' : 'posts';
+      if (!requested.has(source) || counts[source] >= limit) continue;
+      attempts[source] += 1;
+      try {
+        const node = await fetchPost(relay, environment, query, link.shortcode);
+        if (!node) continue;
+        successes[source] += 1;
+        ownerId ||= String(first(node?.owner?.id, node?.owner?.pk, ''));
+        const item = normalizePost(node, link.kind, account);
+        if (item) normalized[source] += 1;
+        const ownerName = String(first(node?.owner?.username, account)).toLowerCase();
+        if (item && ownerName === account) { found[source].push(item); counts[source] += 1; }
+      } catch (_) {}
+    }
+    for (const source of ['posts', 'reels']) {
+      if (attempts[source] && !normalized[source]) {
+        throw new Error(`${source} 发现 ${attempts[source]} 个链接，但 Instagram 返回结构无法解析`);
+      }
+    }
+    return {found, ownerId, links: links.length, attempts, successes, normalized};
+  }
+
   async function scan(payload) {
     const account = String(payload.account || '').toLowerCase();
     const requested = new Set(payload.sources || []);
@@ -140,40 +233,31 @@
     const needsPosts = requested.has('posts') || requested.has('reels');
     let ownerId = '';
     if (needsPosts) {
-      const relay = await requireModule('CometRelay');
-      const environment = await requireModule('PolarisRelayEnvironment');
-      const query = await requireModule('PolarisPostActionLoadPostQuery');
-      const counts = {posts: 0, reels: 0};
-      const attempts = {posts: 0, reels: 0};
-      const successes = {posts: 0, reels: 0};
-      const normalized = {posts: 0, reels: 0};
-      const found = {posts: [], reels: []};
-      const links = await loadShortcodeLinks(limit);
-      result.diagnostics.links = links.length;
-      for (const link of links) {
-        const source = link.kind === 'reel' ? 'reels' : 'posts';
-        if (!requested.has(source) || counts[source] >= limit) continue;
-        attempts[source] += 1;
-        try {
-          const node = await fetchPost(relay, environment, query, link.shortcode);
-          if (!node) continue;
-          successes[source] += 1;
-          ownerId ||= String(first(node?.owner?.id, node?.owner?.pk, ''));
-          const item = normalizePost(node, link.kind, account);
-          if (item) normalized[source] += 1;
-          const ownerName = String(first(node?.owner?.username, account)).toLowerCase();
-          if (item && ownerName === account) { found[source].push(item); counts[source] += 1; }
-        } catch (_) {}
-      }
-      for (const source of ['posts', 'reels']) {
-        result.diagnostics[source] = {
-          attempts: attempts[source], responses: successes[source], parsed: normalized[source],
-        };
-        if (attempts[source] && !normalized[source]) {
-          throw new Error(`${source} 发现 ${attempts[source]} 个链接，但 Instagram 返回结构无法解析`);
+      try {
+        const feed = await fetchAccountFeed(account, requested, limit);
+        ownerId = feed.ownerId;
+        result.diagnostics.feedPages = feed.pages;
+        result.diagnostics.feedItems = feed.feedItems;
+        for (const source of ['posts', 'reels']) {
+          if (requested.has(source)) result.sources[source] = feed.found[source];
+          result.diagnostics[source] = {
+            attempts: feed.candidates[source], parsed: feed.found[source].length,
+            method: 'account-feed',
+          };
         }
-        if (requested.has(source) && (!attempts[source] || normalized[source])) {
-          result.sources[source] = found[source];
+      } catch (feedError) {
+        result.diagnostics.feedError = String(feedError.message || feedError);
+        const linked = await fetchLinkedPosts(account, requested, limit);
+        ownerId = linked.ownerId;
+        result.diagnostics.links = linked.links;
+        for (const source of ['posts', 'reels']) {
+          result.diagnostics[source] = {
+            attempts: linked.attempts[source], responses: linked.successes[source],
+            parsed: linked.normalized[source], method: 'page-links',
+          };
+          if (requested.has(source) && linked.attempts[source] && linked.normalized[source]) {
+            result.sources[source] = linked.found[source];
+          }
         }
       }
     }
