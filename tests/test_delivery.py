@@ -88,14 +88,14 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         plugin.request.headers = {}
         denied = await self.bot.bridge_config()
         self.assertEqual(denied['status_code'], 401)
-        plugin.request.headers = {'Authorization': 'Bearer secret'}
+        plugin.request.headers = {'X-AstrBot-Ins-Token': 'secret'}
         response = await self.bot.bridge_config()
         self.assertEqual(response['accounts'], ['account'])
         self.assertIn('posts', response['sources'])
 
     async def test_bridge_ingest_uses_existing_delivery_queue(self):
         self.bot.config.update(bridge_enabled=True, bridge_token='secret', send_media=False)
-        plugin.request.headers = {'Authorization': 'Bearer secret'}
+        plugin.request.headers = {'X-AstrBot-Ins-Token': 'secret'}
         plugin.request.json = AsyncMock(return_value={
             'account': 'account',
             'sources': {'posts': [{

@@ -1,5 +1,6 @@
 const ALARM = "astrbot-ins-scan";
 const DEFAULT_INTERVAL_MINUTES = 15;
+const API_PATH = '/api/v1/plugins/extensions/astrbot_plugin_ins/bridge/';
 
 function cleanBaseUrl(value) {
   const url = new URL(String(value || "").trim());
@@ -8,25 +9,31 @@ function cleanBaseUrl(value) {
 }
 
 async function settings() {
-  const value = await chrome.storage.local.get(['baseUrl', 'token']);
-  if (!value.baseUrl || !value.token) throw new Error('请先在扩展设置中填写 AstrBot 地址和桥接密钥');
-  return {baseUrl: cleanBaseUrl(value.baseUrl), token: value.token.trim()};
+  const value = await chrome.storage.local.get(['baseUrl', 'apiKey', 'token']);
+  if (!value.baseUrl || !value.apiKey || !value.token) {
+    throw new Error('请先在扩展设置中填写 AstrBot 地址、API Key 和桥接密钥');
+  }
+  return {baseUrl: cleanBaseUrl(value.baseUrl), apiKey: value.apiKey.trim(), token: value.token.trim()};
 }
 
 async function api(path, init = {}) {
   const cfg = await settings();
-  const response = await fetch(cfg.baseUrl + '/astrbot_plugin_ins/bridge/' + path, {
+  const response = await fetch(cfg.baseUrl + API_PATH + path, {
     ...init,
     headers: {
-      'Authorization': 'Bearer ' + cfg.token,
+      'X-API-Key': cfg.apiKey,
+      'X-AstrBot-Ins-Token': cfg.token,
       ...(init.body ? {'Content-Type': 'application/json'} : {}),
       ...(init.headers || {}),
     },
   });
   let body;
   try { body = await response.json(); } catch (_) { body = {}; }
-  if (!response.ok) throw new Error(body.message || body.error || `AstrBot 返回 HTTP ${response.status}`);
-  return body;
+  if (!response.ok || body.status === 'error') {
+    const suffix = response.status === 404 ? '；请确认 AstrBot ≥ 4.26 且插件已重载' : '';
+    throw new Error((body.message || body.error || `AstrBot 返回 HTTP ${response.status}`) + suffix);
+  }
+  return body.status === 'ok' && body.data !== undefined ? body.data : body;
 }
 
 function waitForLoad(tabId, timeoutMs = 45000) {

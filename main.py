@@ -241,8 +241,11 @@ class InsPlugin(Star):
 
     def bridge_authorized(self):
         expected = str(self.config.get('bridge_token', '')).strip()
-        supplied = request.headers.get('Authorization', '')
-        return bool(expected) and hmac.compare_digest(supplied, f'Bearer {expected}')
+        supplied = request.headers.get('X-AstrBot-Ins-Token', '')
+        legacy = request.headers.get('Authorization', '')
+        return bool(expected) and (
+            hmac.compare_digest(supplied, expected)
+            or hmac.compare_digest(legacy, f'Bearer {expected}'))
 
     async def bridge_config(self):
         if not self.config.get('bridge_enabled', False):
